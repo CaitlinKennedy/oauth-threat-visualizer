@@ -156,7 +156,11 @@ def _run_injection(config: ScenarioConfig) -> Trace:
     env = Environment()
     pkce_method = _pkce_method(config)
 
-    client: Client = ClientImpl(recorder, env, pkce_method=pkce_method)
+    # The victim uses the PUBLIC client (native/SPA, no secret). With no client
+    # secret in play, PKCE is honestly the only binding that can stop the attacker.
+    client: Client = ClientImpl(
+        recorder, env, pkce_method=pkce_method, registered_client=env.public_client
+    )
     auth_server: AuthServer = AuthServerImpl(recorder, env)
     resource_server: ResourceServer = ResourceServerImpl(
         recorder, env.resource_server_config(), auth_server

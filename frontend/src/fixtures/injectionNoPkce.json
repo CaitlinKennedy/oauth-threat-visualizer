@@ -1,5 +1,5 @@
 {
-  "correlation_id": "run_oafYYQ1HQKGTOhrQbXlSEGJ1Efshz01hsgE38R-RktE",
+  "correlation_id": "run_K8BayzzXQZaG1oOSRladSXCXaJ89DENYtDhv9akCl6M",
   "config": {
     "grant": "authorization_code",
     "capabilities": {
@@ -39,10 +39,10 @@
           "headers": {},
           "body": {
             "response_type": "code",
-            "client_id": "demo-web-app",
-            "redirect_uri": "https://app.oauthlab.internal/callback",
+            "client_id": "demo-native-app",
+            "redirect_uri": "https://spa.oauthlab.internal/callback",
             "scope": "profile email",
-            "state": "st_SusDFAr-T4G0g7LGVFttwqdrnKd2mUwikMerbb7SHOQ"
+            "state": "st_s1mlklp0QMmmDKFPfpeXqbxqJmYibUd8lcexw4dDvzA"
           }
         },
         "response": {
@@ -64,7 +64,7 @@
           "has": [
             "state",
             "redirect_uri",
-            "client_credentials"
+            "client_id"
           ],
           "lacks": []
         }
@@ -96,10 +96,10 @@
           },
           "body": {
             "response_type": "code",
-            "client_id": "demo-web-app",
-            "redirect_uri": "https://app.oauthlab.internal/callback",
+            "client_id": "demo-native-app",
+            "redirect_uri": "https://spa.oauthlab.internal/callback",
             "scope": "profile email",
-            "state": "st_SusDFAr-T4G0g7LGVFttwqdrnKd2mUwikMerbb7SHOQ"
+            "state": "st_s1mlklp0QMmmDKFPfpeXqbxqJmYibUd8lcexw4dDvzA"
           }
         },
         "response": {
@@ -220,17 +220,17 @@
       "http": {
         "request": {
           "method": "GET",
-          "url": "https://app.oauthlab.internal/callback",
+          "url": "https://spa.oauthlab.internal/callback",
           "headers": {}
         },
         "response": {
           "status": 302,
           "headers": {
-            "Location": "https://app.oauthlab.internal/callback?code=ac_z06m2swfTGKP5nYttHy6jWisWI1pqkn9qmaVRiG45DE&state=st_SusDFAr-T4G0g7LGVFttwqdrnKd2mUwikMerbb7SHOQ"
+            "Location": "https://spa.oauthlab.internal/callback?code=ac_tqS7bvuzStK2-l9jV7A7u19InvIJWUuNiPa4wCXWwLI&state=st_s1mlklp0QMmmDKFPfpeXqbxqJmYibUd8lcexw4dDvzA"
           },
           "body": {
-            "code": "ac_z06m2swfTGKP5nYttHy6jWisWI1pqkn9qmaVRiG45DE",
-            "state": "st_SusDFAr-T4G0g7LGVFttwqdrnKd2mUwikMerbb7SHOQ"
+            "code": "ac_tqS7bvuzStK2-l9jV7A7u19InvIJWUuNiPa4wCXWwLI",
+            "state": "st_s1mlklp0QMmmDKFPfpeXqbxqJmYibUd8lcexw4dDvzA"
           }
         },
         "highlight": [
@@ -261,7 +261,7 @@
       "on_behalf_of": "attacker",
       "phase": "redirect",
       "summary": "Attacker obtains the victim's authorization code.",
-      "detail": "The authorization code is delivered through the front channel \u2014 the redirect in the user's browser \u2014 where it is exposed to leakage (Referer, history, an open redirect, or logs). The attacker captures it. It now holds the code, but not the per-request code_verifier, which never left the legitimate client.",
+      "detail": "The authorization code is delivered through the front channel \u2014 the redirect in the user's browser \u2014 where it is exposed to leakage (Referer, history, an open redirect, or logs). The attacker captures it. The flow used a public client, so the client_id is not a secret either. What the attacker does NOT have is the per-request code_verifier, which never left the legitimate client instance.",
       "outcome": "ok",
       "refs": [
         5
@@ -278,7 +278,7 @@
           "status": 200,
           "headers": {},
           "body": {
-            "captured_code": "ac_z06m2swfTGKP5nYttHy6jWisWI1pqkn9qmaVRiG45DE"
+            "captured_code": "ac_tqS7bvuzStK2-l9jV7A7u19InvIJWUuNiPa4wCXWwLI"
           }
         },
         "highlight": [
@@ -291,7 +291,7 @@
         "attacker": {
           "has": [
             "authorization_code",
-            "client_credentials"
+            "public_client_id"
           ],
           "lacks": [
             "code_verifier"
@@ -315,7 +315,7 @@
       "on_behalf_of": "attacker",
       "phase": "token",
       "summary": "Token endpoint receives the code exchange.",
-      "detail": "The client presents the authorization code over the back channel and authenticates itself with its client credentials. The server will now verify the client, then redeem the code.",
+      "detail": "The caller presents the authorization code over the back channel to exchange it for a token. This is a public client, so there are no client credentials to present; the server will redeem the code subject to the checks that do apply.",
       "outcome": "ok",
       "refs": [
         6
@@ -329,11 +329,10 @@
           },
           "body": {
             "grant_type": "authorization_code",
-            "code": "ac_z06m2swfTGKP5nYttHy6jWisWI1pqkn9qmaVRiG45DE",
-            "redirect_uri": "https://app.oauthlab.internal/callback",
-            "client_id": "demo-web-app",
-            "client_secret": "s3c\u2026(redacted)",
-            "code_verifier": "zfeMUqFzQheTgkWXGznv7Zz50OuLJE_gsUZ1YpYEEKw"
+            "code": "ac_tqS7bvuzStK2-l9jV7A7u19InvIJWUuNiPa4wCXWwLI",
+            "redirect_uri": "https://spa.oauthlab.internal/callback",
+            "client_id": "demo-native-app",
+            "code_verifier": "aA3RN0tET4iTDARYR3C2HlrVmDc7LEPVsKcZvcJJQLU"
           }
         },
         "response": {
@@ -363,28 +362,21 @@
       "actor": "auth_server",
       "on_behalf_of": "attacker",
       "phase": "token",
-      "summary": "Token endpoint authenticates the confidential client.",
-      "detail": "The server checks the client's credentials at the token endpoint. Only a client that authenticates as the one the code was issued to may redeem it over the back channel.",
+      "summary": "Public client presents no secret (no client authentication).",
+      "detail": "This is a public client (a native app or SPA): it registered with token_endpoint_auth_method=none and holds no client secret. The token endpoint therefore performs no client authentication \u2014 a public client_id is not a secret, so anyone can present it. Client authentication is not a gate here; whether a captured code can be redeemed comes down to PKCE.",
       "outcome": "ok",
       "refs": [
         7
       ],
-      "check": {
-        "name": "client_authentication",
-        "rule": "presented client_id + client_secret match the registered client",
-        "result": "PASS",
-        "spec_ref": {
-          "rfc": "RFC 6749",
-          "section": "\u00a72.3.1"
-        },
-        "expected": "valid client credentials",
-        "actual": "authenticated"
-      },
       "knowledge_delta": {},
       "spec_refs": [
         {
           "rfc": "RFC 6749",
-          "section": "\u00a72.3.1"
+          "section": "\u00a72.1"
+        },
+        {
+          "rfc": "RFC 7636",
+          "section": "\u00a71"
         }
       ]
     },
@@ -473,7 +465,7 @@
             "Content-Type": "application/json"
           },
           "body": {
-            "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJ1c2VyLThmMzFjMiIsImF1ZCI6Imh0dHBzOi8vYXBpLm9hdXRobGFiLmludGVybmFsIiwiY2xpZW50X2lkIjoiZGVtby13ZWItYXBwIiwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwiaWF0IjoxNzg5MzM3MjIxLCJuYmYiOjE3ODkzMzcyMjEsImV4cCI6MTc4OTMzNzUyMSwianRpIjoiNDdlMDM5ZWE3M2UwNDQxMmJkODNjODVmNzQ2MzNmY2QifQ.YEq1oZaIwDqzqWMVxKdgHTw5-Qhj3CCD_v1Ttodu4yNSZfswwuhFH5nfwPq6dnyejN1SLnrgsZK9p6uKkxUkhPK_mO4vmv_i6n8bgMs3Fb6jdL2TYoqzAAmE-XQ3uHe3gwt_toaLDDgZE7oxu4eEnNfwOahzjxrdzcX6-gzOMDLaixvmv-zvvsvw86Ot2iUHTffmXisSnQPJtUxzSBNmYvr6JSbHAbQCkJT8ffMjsB72-4epYdFBAB-KllzVhUXFy3K7G8xMYGGZCodbZjpxhvt5dOt9acxLmL4eZ9wk6dxz_6L22kUhAlUXIxYHcU6GfNzlJZT7je71FzJieENgOQ",
+            "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJ1c2VyLThmMzFjMiIsImF1ZCI6Imh0dHBzOi8vYXBpLm9hdXRobGFiLmludGVybmFsIiwiY2xpZW50X2lkIjoiZGVtby1uYXRpdmUtYXBwIiwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwiaWF0IjoxNzg5MzM4ODg1LCJuYmYiOjE3ODkzMzg4ODUsImV4cCI6MTc4OTMzOTE4NSwianRpIjoiOGY3OGE5ZjcyYzY5NGMwZmJlOTY4NzQ1YmNiN2NiZjMifQ.PKk0Z97-Q1Gxn8PxZQaWfROooZAkbsyVcYxlkJrRKl88Klufc_ZVQpkPkhd2K9IDEzLiKL-gmRQElQcyzA0zSSugBMPyUpvDH2yHpPWc03P_MX7O6yi0TSPXtmaq5K8mSNmQdzgRUVX4PzSaYHRrVZK7eWDsg6yqXXqn8-4h2OnPQ3FaXDPZcz9smEotzn9-0-fWYpx1o4gWHs-R2jzCsiog0ettLGrKrzZvBxPIc42bmIOoIVT0R6JLnAD9aPWjQw9iBUEJDy6xONz-tGvZtb4jmjTO7y0ybkiJuGse6c448gEd446KNxgVyy7kj9X3YKprWSWlX_1lsGxs3OyHYg",
             "token_type": "Bearer",
             "expires_in": 300,
             "scope": "profile email"

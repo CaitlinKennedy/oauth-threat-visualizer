@@ -110,11 +110,12 @@ class AuthServerImpl(AuthServer):
         Emits: receive request, client/redirect-URI registration check,
         authenticate + consent, issue code.
         """
-        client = self.env.client
         response_type = params.get("response_type")
         client_id = params.get("client_id")
         redirect_uri = params.get("redirect_uri")
-        scope = params.get("scope", client.scope)
+        # Resolve the requested client from the registry (confidential or public).
+        looked = self.env.client_by_id(client_id)
+        scope = params.get("scope", looked.scope if looked else self.env.client.scope)
         state = params.get("state")
         # PKCE (RFC 7636): the client MAY bind the code to a per-request verifier by
         # sending a challenge here. When present, the token endpoint will require a
@@ -174,8 +175,8 @@ class AuthServerImpl(AuthServer):
         # First-class check: the client is registered and the redirect URI exactly
         # matches a registered one (the authorize-time client binding). Emitted on
         # PASS too so later phases can highlight it (e.g. exact vs loose matching).
-        registered = client_id == client.client_id
-        redirect_ok = redirect_uri in client.redirect_uris
+        registered = looked is not None
+        redirect_ok = registered and redirect_uri in looked.redirect_uris
         reg_result = "PASS" if (registered and redirect_ok) else "FAIL"
         self.recorder.emit(
             actor="auth_server",
@@ -306,13 +307,13 @@ class AuthServerImpl(AuthServer):
         redirect-URI match, and client binding, each with a first-class ``check``
         event (emitted on PASS too, so later phases can highlight them).
         """
-        client = self.env.client
         grant_type = request.get("grant_type")
         code = request.get("code")
         redirect_uri = request.get("redirect_uri")
         client_id = request.get("client_id")
         client_secret = request.get("client_secret")
         code_verifier = request.get("code_verifier")
+        looked = self.env.client_by_id(client_id)
 
         # The peer that sent this request. In a REST deployment this is the
         # authenticated caller; here it is carried in the ambient trace context, so
@@ -326,8 +327,11 @@ class AuthServerImpl(AuthServer):
             "code": code,
             "redirect_uri": redirect_uri,
             "client_id": client_id,
-            "client_secret": _redact(client_secret),
         }
+        # A public client presents no secret at all; only show one when sent, so
+        # the injection trace never references a client secret.
+        if client_secret is not None:
+            request_body["client_secret"] = _redact(client_secret)
         receive_highlight = ["request.body.code", "request.body.grant_type"]
         if code_verifier is not None:
             request_body["code_verifier"] = code_verifier
@@ -335,15 +339,26 @@ class AuthServerImpl(AuthServer):
             # caller holds, and the verifier it must also hold under PKCE.
             receive_highlight = ["request.body.code", "request.body.code_verifier"]
 
+        # Keep the confidential-client wording byte-identical (the happy path uses
+        # it); use accurate wording for a public client, which has no credentials.
+        if looked is not None and looked.is_public:
+            receive_detail = (
+                "The caller presents the authorization code over the back channel to "
+                "exchange it for a token. This is a public client, so there are no "
+                "client credentials to present; the server will redeem the code subject "
+                "to the checks that do apply."
+            )
+        else:
+            receive_detail = (
+                "The client presents the authorization code over the back channel and "
+                "authenticates itself with its client credentials. The server will now "
+                "verify the client, then redeem the code."
+            )
         receive_seq = self.recorder.emit(
             actor="auth_server",
             phase="token",
             summary="Token endpoint receives the code exchange.",
-            detail=(
-                "The client presents the authorization code over the back channel and "
-                "authenticates itself with its client credentials. The server will now "
-                "verify the client, then redeem the code."
-            ),
+            detail=receive_detail,
             outcome="ok",
             http=HttpExchange(
                 request=HttpMessage(
@@ -360,30 +375,58 @@ class AuthServerImpl(AuthServer):
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.3")],
         )
 
-        # First-class client-authentication check (confidential client).
-        client_auth_ok = client_id == client.client_id and client_secret == client.client_secret
-        self.recorder.emit(
-            actor="auth_server",
-            phase="token",
-            summary="Token endpoint authenticates the confidential client.",
-            detail=(
-                "The server checks the client's credentials at the token endpoint. Only "
-                "a client that authenticates as the one the code was issued to may redeem "
-                "it over the back channel."
-            ),
-            outcome="ok" if client_auth_ok else "blocked",
-            check=Check(
-                name="client_authentication",
-                rule="presented client_id + client_secret match the registered client",
-                expected="valid client credentials",
-                actual="authenticated" if client_auth_ok else "authentication failed",
-                result="PASS" if client_auth_ok else "FAIL",
-                spec_ref=SpecRef(rfc="RFC 6749", section="§2.3.1"),
-            ),
-            spec_refs=[SpecRef(rfc="RFC 6749", section="§2.3.1")],
-        )
-        if not client_auth_ok:
-            raise OAuthError("invalid_client", "client authentication failed", status=401)
+        if looked is not None and looked.is_public:
+            # Public client (token_endpoint_auth_method=none): there is no secret to
+            # verify, so client authentication is simply NOT a gate here. Recording
+            # this honestly is the point — it leaves PKCE as the only binding that
+            # can stop a stolen-code redemption.
+            self.recorder.emit(
+                actor="auth_server",
+                phase="token",
+                summary="Public client presents no secret (no client authentication).",
+                detail=(
+                    "This is a public client (a native app or SPA): it registered with "
+                    "token_endpoint_auth_method=none and holds no client secret. The "
+                    "token endpoint therefore performs no client authentication — a "
+                    "public client_id is not a secret, so anyone can present it. Client "
+                    "authentication is not a gate here; whether a captured code can be "
+                    "redeemed comes down to PKCE."
+                ),
+                outcome="ok",
+                spec_refs=[
+                    SpecRef(rfc="RFC 6749", section="§2.1"),
+                    SpecRef(rfc="RFC 7636", section="§1"),
+                ],
+            )
+        else:
+            # First-class client-authentication check (confidential client).
+            client_auth_ok = (
+                looked is not None
+                and client_id == looked.client_id
+                and client_secret == looked.client_secret
+            )
+            self.recorder.emit(
+                actor="auth_server",
+                phase="token",
+                summary="Token endpoint authenticates the confidential client.",
+                detail=(
+                    "The server checks the client's credentials at the token endpoint. "
+                    "Only a client that authenticates as the one the code was issued to "
+                    "may redeem it over the back channel."
+                ),
+                outcome="ok" if client_auth_ok else "blocked",
+                check=Check(
+                    name="client_authentication",
+                    rule="presented client_id + client_secret match the registered client",
+                    expected="valid client credentials",
+                    actual="authenticated" if client_auth_ok else "authentication failed",
+                    result="PASS" if client_auth_ok else "FAIL",
+                    spec_ref=SpecRef(rfc="RFC 6749", section="§2.3.1"),
+                ),
+                spec_refs=[SpecRef(rfc="RFC 6749", section="§2.3.1")],
+            )
+            if not client_auth_ok:
+                raise OAuthError("invalid_client", "client authentication failed", status=401)
         if grant_type != "authorization_code":
             raise OAuthError("unsupported_grant_type", f"grant_type={grant_type!r}")
 

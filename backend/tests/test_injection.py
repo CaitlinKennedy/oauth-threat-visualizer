@@ -103,6 +103,29 @@ def test_attacker_knowledge_shows_code_but_not_verifier():
     ks = intercept.knowledge_delta["attacker"]
     assert "authorization_code" in ks.has
     assert "code_verifier" in ks.lacks
+    # Public-client scenario: the attacker never holds a client secret/credentials.
+    assert "client_credentials" not in ks.has
+    assert "client_secret" not in ks.has
+
+
+@pytest.mark.parametrize("pkce", [False, True])
+def test_injection_uses_public_client_and_no_secret(pkce):
+    """PKCE must be the lone gate: a public client, and no client secret anywhere."""
+    trace = run(_injection(pkce=pkce))
+    seen_client_ids = set()
+    for e in trace.events:
+        body = e.http.request.body if (e.http and isinstance(e.http.request.body, dict)) else {}
+        if "client_id" in body:
+            seen_client_ids.add(body["client_id"])
+        # No step's request body may carry a client secret.
+        assert "client_secret" not in body, f"client_secret leaked at seq {e.seq}"
+    assert seen_client_ids == {"demo-native-app"}
+    # A public client is not authenticated, so there is no client_authentication check.
+    assert not any(e.check and e.check.name == "client_authentication" for e in trace.events)
+    # The public-client step is recorded honestly (informational, not a gate).
+    assert any(
+        e.actor == "auth_server" and "public client" in e.summary.lower() for e in trace.events
+    )
 
 
 def test_injection_highlights_the_decisive_token_params():

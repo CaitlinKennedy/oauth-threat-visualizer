@@ -70,8 +70,9 @@ class AttackerImpl(Attacker):
                 "The authorization code is delivered through the front channel — the "
                 "redirect in the user's browser — where it is exposed to leakage "
                 "(Referer, history, an open redirect, or logs). The attacker captures "
-                "it. It now holds the code, but not the per-request code_verifier, "
-                "which never left the legitimate client."
+                "it. The flow used a public client, so the client_id is not a secret "
+                "either. What the attacker does NOT have is the per-request "
+                "code_verifier, which never left the legitimate client instance."
             ),
             outcome="ok",  # the acquisition itself succeeds; the redemption is what's tested
             refs=[obtained_from_seq],
@@ -87,11 +88,11 @@ class AttackerImpl(Attacker):
                 target_actor="attacker",
             ),
             knowledge_delta={
-                # The attacker can also present the client's parameters (a public
-                # client, or captured client config) — so client authentication is
-                # NOT the blocker. The one thing it cannot supply is the verifier.
+                # The attacker holds the code and the PUBLIC client_id (not a
+                # secret), so client authentication is not the blocker. The one
+                # thing it cannot supply is the verifier.
                 "attacker": KnowledgeState(
-                    has=["authorization_code", "client_credentials"],
+                    has=["authorization_code", "public_client_id"],
                     lacks=["code_verifier"],
                 ),
             },
@@ -106,26 +107,27 @@ class AttackerImpl(Attacker):
     def redeem_code(self, *, auth_server: AuthServer) -> Dict[str, Any]:
         """Redeem the stolen code at the real token endpoint, as the attacker.
 
-        The attacker authenticates as the client (public client / captured config)
-        and presents the stolen code plus its *own* freshly generated verifier — it
-        cannot know the victim client's secret verifier. The real token endpoint
-        decides the outcome: without PKCE there is no challenge to check and a token
-        is issued for the victim; with PKCE the genuine S256 check rejects the
-        mismatch. Returns ``{"got_token": bool, "at_seq": int | None,
-        "responsible_check": str | None}``.
+        The flow used a public client, so the attacker simply presents the public
+        client_id (no secret exists) plus the stolen code and its *own* freshly
+        generated verifier — it cannot know the victim client's secret verifier.
+        The real token endpoint decides the outcome: without PKCE there is no
+        challenge to check and a token is issued for the victim; with PKCE the
+        genuine S256 check rejects the mismatch. Returns ``{"got_token": bool,
+        "at_seq": int | None, "responsible_check": str | None}``.
         """
         code = self._stolen_code
         assert code is not None, "redeem_code called before intercept_code"
-        client = self.env.client
+        client = self.env.public_client
         # The attacker's own session verifier — it does not match the victim's
         # challenge, and the attacker cannot reverse S256 to make one that does.
         attacker_verifier = crypto.new_code_verifier()
+        # A public client has no secret; the attacker presents only the public
+        # client_id, so nothing here hand-waves a stolen credential.
         token_request = {
             "grant_type": "authorization_code",
             "code": code,
             "redirect_uri": client.redirect_uri,
             "client_id": client.client_id,
-            "client_secret": client.client_secret,
             "code_verifier": attacker_verifier,
         }
 
@@ -143,11 +145,11 @@ class AttackerImpl(Attacker):
                 summary="Attacker's stolen-code redemption is rejected.",
                 detail=(
                     "The token endpoint rejects the exchange. The attacker presented a "
-                    "valid, unused, correctly-bound code and authenticated as the "
-                    "client — every binding except one. It could not present a "
-                    "code_verifier whose S256 hash equals the code_challenge the "
-                    "legitimate client registered, so PKCE stops the injection here. "
-                    "No token is issued to the attacker."
+                    "valid, unused, correctly-bound code for the public client — every "
+                    "binding except one. It could not present a code_verifier whose "
+                    "S256 hash equals the code_challenge the legitimate client "
+                    "registered, so PKCE stops the injection here. No token is issued "
+                    "to the attacker."
                 ),
                 outcome="attack_blocked",
                 # Truthful causality: the rejection the attacker observes is the
