@@ -173,3 +173,39 @@ def test_unknown_api_route_is_json_404(client):
 def test_missing_asset_with_extension_is_404(client):
     r = client.get("/foo/assets/does-not-exist.js")
     assert r.status_code == 404
+
+
+def test_method_not_allowed_is_json_not_html(client):
+    # A Werkzeug-raised HTTPException (405, here) should come back through the
+    # top-level error handler as JSON, not Werkzeug's default HTML error page.
+    r = client.post("/api/health")
+    assert r.status_code == 405
+    assert r.content_type.startswith("application/json")
+    body = r.get_json()
+    assert body["error"] == "Method Not Allowed"
+    assert "message" in body
+
+
+def test_oversized_body_is_413_json(client):
+    # MAX_CONTENT_LENGTH caps the request body; Werkzeug raises before the route
+    # handler runs, so this exercises the same top-level error handler.
+    oversized = b'{"pad": "' + b"x" * (300 * 1024) + b'"}'
+    r = client.post("/api/run", data=oversized, content_type="application/json")
+    assert r.status_code == 413
+    assert r.content_type.startswith("application/json")
+    assert r.get_json()["error"] == "Request Entity Too Large"
+
+
+def test_unhandled_exception_is_json_500(client):
+    # A genuine bug anywhere in the app must still yield a JSON 500, never an HTML
+    # traceback page — register a route that raises and confirm the fallback shape.
+    app = client.application
+
+    @app.route("/__boom")
+    def _boom():
+        raise RuntimeError("boom")
+
+    r = client.get("/__boom")
+    assert r.status_code == 500
+    assert r.content_type.startswith("application/json")
+    assert r.get_json() == {"error": "internal_error", "message": "unexpected server error"}
