@@ -587,6 +587,7 @@ export default function App() {
             trace={shownTrace}
             open={verdictOpen}
             onToggle={() => setVerdictOpen((o) => !o)}
+            catalogLabels={catalogLabels}
           />
         )}
 

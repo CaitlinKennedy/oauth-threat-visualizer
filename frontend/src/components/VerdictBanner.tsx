@@ -4,22 +4,24 @@ interface Props {
   trace: Trace;
   open: boolean;
   onToggle: () => void;
+  catalogLabels?: Record<string, string>;
 }
 
 // The verdict strip. Pass/fail is never conveyed by color alone: each badge
 // carries a ✓/✗ glyph and a text label. The "Why?" disclosure explains the
 // outcome from fields on the trace, so it stays a pure function of the run.
-export function VerdictBanner({ trace, open, onToggle }: Props) {
+export function VerdictBanner({ trace, open, onToggle, catalogLabels = {} }: Props) {
   const v = trace.verdict;
   const attackerWon = v.attacker_got_token;
   const anyAttack = Object.values(trace.config?.attacks ?? {}).some(
     (a) => a?.active,
   );
+  const label = (id: string) => catalogLabels[id] ?? id;
 
   const responsible = !anyAttack
     ? "None needed — no attack was attempted in this run."
     : v.responsible_capability
-      ? v.responsible_capability
+      ? label(v.responsible_capability)
       : attackerWon
         ? "None — the attack succeeded."
         : "—";
