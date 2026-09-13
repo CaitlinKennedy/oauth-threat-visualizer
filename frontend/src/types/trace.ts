@@ -5,11 +5,42 @@
 
 export const SCHEMA_VERSION = "1.0";
 
-export type Actor = "client" | "auth_server" | "resource_server" | "attacker";
-export type Phase = "authorize" | "redirect" | "token" | "resource" | "introspect";
-export type Outcome = "ok" | "blocked" | "attack_success" | "attack_blocked";
-export type CheckResult = "PASS" | "FAIL";
-export type Grant = "authorization_code" | "client_credentials" | "jwt_bearer";
+// Runtime enum tuples — the single source the type unions derive from, and what
+// the cross-language guard test compares against backend/otv/contract_enums.json.
+// Keep these byte-aligned with the tuples in contract.py.
+export const ACTORS = [
+  "client",
+  "auth_server",
+  "resource_server",
+  "attacker",
+] as const;
+export const PHASES = [
+  "authorize",
+  "redirect",
+  "token",
+  "resource",
+  "introspect",
+] as const;
+export const OUTCOMES = [
+  "ok",
+  "blocked",
+  "attack_success",
+  "attack_blocked",
+  "partial",
+] as const;
+export const CHECK_RESULTS = ["PASS", "FAIL"] as const;
+export const GRANTS = [
+  "authorization_code",
+  "client_credentials",
+  "jwt_bearer",
+  "implicit",
+] as const;
+
+export type Actor = (typeof ACTORS)[number];
+export type Phase = (typeof PHASES)[number];
+export type Outcome = (typeof OUTCOMES)[number];
+export type CheckResult = (typeof CHECK_RESULTS)[number];
+export type Grant = (typeof GRANTS)[number];
 
 export interface SpecRef {
   rfc: string;
@@ -27,7 +58,19 @@ export interface HttpMessage {
 export interface HttpExchange {
   request: HttpMessage;
   response: HttpMessage;
+  // Dotted paths flagging the decisive field(s): `<side>.<section>.<key>` where
+  // side is request|response and section is headers|body|query — e.g.
+  // "request.headers.Authorization", "request.body.client_secret". Consumers
+  // that don't parse the path can fall back to the trailing <key> segment.
   highlight: string[];
+  // Explicit message direction so the diagram is a pure function of the trace (no
+  // hostname string-matching). Each is one of Actor, or null/absent for an
+  // actor-internal step with no cross-actor edge. *_instance disambiguates two
+  // instances of one role (e.g. a mix-up scenario); absent for single-instance.
+  source_actor?: Actor | null;
+  target_actor?: Actor | null;
+  source_instance?: string | null;
+  target_instance?: string | null;
 }
 
 export interface Check {
@@ -53,9 +96,15 @@ export interface StepEvent {
   detail: string;
   outcome: Outcome;
   refs: number[];
+  // Distinguishes two instances of the same role in one run (e.g. an "honest" vs.
+  // "rogue" auth server) without growing the ACTORS enum; absent for single-
+  // instance runs.
+  actor_instance?: string | null;
   http?: HttpExchange;
   check?: Check;
-  knowledge_delta: Partial<Record<Actor, KnowledgeState>>;
+  // Keys are a bare actor ("attacker") or instance-qualified "actor#instance"
+  // (e.g. "auth_server#rogue"); the actor part is always one of ACTORS.
+  knowledge_delta: Record<string, KnowledgeState>;
   spec_refs: SpecRef[];
 }
 
@@ -80,6 +129,23 @@ export interface Verdict {
   one_line: string;
   blocked_at_seq?: number | null;
   responsible_capability?: string | null;
+  // All contributing blockers, primary first (mirrors responsible_capability as
+  // the headline). Empty when nothing blocked.
+  responsible_capabilities?: string[];
+}
+
+// Where in a chained attack the block occurred (a specific sub-trace step).
+export interface ChainBlock {
+  trace_id: string;
+  seq: number;
+}
+
+// Roll-up verdict across the linked sub-traces of one chained attack; carried on
+// the terminal sub-trace (Trace.chain_verdict).
+export interface ChainVerdict {
+  attacker_got_token: boolean;
+  responsible_capabilities?: string[];
+  blocked_at?: ChainBlock | null;
 }
 
 export interface Trace {
@@ -91,8 +157,30 @@ export interface Trace {
   // Reserved for Phase 4 chained attacks (linked sub-traces); null otherwise.
   parent_id?: string | null;
   chain_id?: string | null;
+  // Set only on the terminal sub-trace of a chain; null for a standalone run.
+  chain_verdict?: ChainVerdict | null;
   // Present only when the backend served a committed fixture as a fallback.
   _source?: "fallback";
+}
+
+// --- Compare / diff response (the flow-2 vs flow-3 gesture) -----------------
+// The SHAPE is frozen in v1.0; the compare logic (running baseline + variant and
+// computing where they diverge) arrives in a later phase.
+
+export interface Divergence {
+  seq: number;
+  reason: string;
+  capability: string;
+}
+
+export interface CompareResponse {
+  mode: "compare";
+  baseline: Trace;
+  variant: Trace;
+  // A LIST — a single toggle can differ at more than one step. `divergence` is a
+  // convenience alias for divergences[0].
+  divergences: Divergence[];
+  divergence?: Divergence;
 }
 
 // --- Presets (GET /api/scenarios) ------------------------------------------
@@ -133,6 +221,13 @@ export interface RegistryItem {
   default_active: boolean;
   params: ParamSpec[];
   incompatibilities: string[];
+  // Grant ids this item applies to; empty means all grants.
+  applies_to_grants: string[];
+  // Meta-capability bundling: ids this item forces active+locked (implies) or
+  // disallows (forbids). A forbids entry may name a capability id OR a grant id
+  // (e.g. oauth_2_1 forbids "implicit"). Both empty for a plain item.
+  implies: string[];
+  forbids: string[];
   available: boolean;
 }
 

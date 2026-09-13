@@ -1,0 +1,33 @@
+{
+  "SCHEMA_VERSION": "1.0",
+  "ACTORS": [
+    "client",
+    "auth_server",
+    "resource_server",
+    "attacker"
+  ],
+  "PHASES": [
+    "authorize",
+    "redirect",
+    "token",
+    "resource",
+    "introspect"
+  ],
+  "OUTCOMES": [
+    "ok",
+    "blocked",
+    "attack_success",
+    "attack_blocked",
+    "partial"
+  ],
+  "CHECK_RESULTS": [
+    "PASS",
+    "FAIL"
+  ],
+  "GRANTS": [
+    "authorization_code",
+    "client_credentials",
+    "jwt_bearer",
+    "implicit"
+  ]
+}
