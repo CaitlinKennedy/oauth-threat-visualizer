@@ -68,11 +68,15 @@ def test_applies_to_grants_populated_sensibly():
     assert by_id["dpop"].applies_to_grants == []  # applies broadly
 
 
-def test_no_feature_is_available_in_phase_0():
+def test_availability_reflects_current_phase():
     cat = registry.to_catalog_dict()
-    # Phase 0 exercises only the authorization_code grant; every catalogued
-    # capability/attack toggle arrives in a later phase.
-    assert all(not i["available"] for i in [*cat["capabilities"], *cat["attacks"]])
+    by_id = {i["id"]: i for i in [*cat["capabilities"], *cat["attacks"]]}
+    # Phase 1 makes exactly pkce + auth-code injection runnable; nothing else yet.
+    available = {i["id"] for i in [*cat["capabilities"], *cat["attacks"]] if i["available"]}
+    assert available == {"pkce", "auth_code_injection"}
+    # And availability is exactly "phase <= CURRENT_PHASE".
+    for item in by_id.values():
+        assert item["available"] == (item["phase"] <= registry.CURRENT_PHASE)
 
 
 def test_feature_map_accepts_state_objects_and_bool_shorthand():

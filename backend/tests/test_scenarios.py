@@ -108,13 +108,23 @@ def test_single_use_code_is_enforced(happy_trace):
     assert exc.value.error == "invalid_grant"
 
 
-def test_attacks_and_other_grants_are_unsupported_this_phase():
+def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
+    # A Phase 2+ capability is still refused in Phase 1.
     with pytest.raises(UnsupportedScenario):
         run(
             ScenarioConfig(
                 grant="authorization_code",
-                attacks={"auth_code_injection": FeatureState(active=True)},
+                capabilities={"state": FeatureState(active=True)},
             )
         )
+    # A Phase 2+ attack is still refused.
+    with pytest.raises(UnsupportedScenario):
+        run(
+            ScenarioConfig(
+                grant="authorization_code",
+                attacks={"code_token_replay": FeatureState(active=True)},
+            )
+        )
+    # Other grants are not implemented yet.
     with pytest.raises(UnsupportedScenario):
         run(ScenarioConfig(grant="client_credentials"))
