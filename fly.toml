@@ -1,0 +1,40 @@
+# Fly.io app configuration. See docs/DEPLOYMENT.md for the full deploy guide.
+# Schema reference: https://fly.io/docs/reference/configuration/
+app = "oauth-threat-visualizer"
+primary_region = "iad"
+
+# No [build] section needed: flyctl auto-detects the Dockerfile at the repo root
+# and builds it as-is (https://fly.io/docs/languages-and-frameworks/dockerfile/).
+
+# Fly does NOT inject a PORT env var automatically for Docker-based deploys — the
+# Dockerfile's gunicorn CMD binds $PORT, so it must be set explicitly here and kept
+# equal to internal_port below, or the app won't be reachable.
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1   # keep one machine warm — avoids a cold-start blank screen
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/api/health"
+
+# Fly's default restart policy for a Machine that exits non-zero is already
+# "on-failure" — spelled out here (with a retry cap) so it's explicit rather than
+# implicit.
+[[restart]]
+  policy = "on-failure"
+  retries = 3
+
+# shared-cpu-1x defaults to 256MB; bumped to 512MB for headroom with 2 gunicorn
+# workers on this small demo app.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
