@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from flask import Flask, jsonify, request, send_from_directory
+from werkzeug.exceptions import HTTPException
 
 from otv import registry, scenarios
 from otv.contract import (
@@ -66,6 +67,23 @@ def _is_happy_path_config(config: ScenarioConfig) -> bool:
 
 def create_app() -> Flask:
     app = Flask(__name__, static_folder=None)
+
+    # Reject oversized request bodies before they reach a handler (Werkzeug raises
+    # RequestEntityTooLarge, a 413, which the error handler below turns into JSON). A
+    # RunConfig is a small JSON object, so 256 KB is generous headroom.
+    app.config["MAX_CONTENT_LENGTH"] = 256 * 1024
+
+    @app.errorhandler(Exception)
+    def handle_error(err: Exception):
+        # Werkzeug's own HTTP errors (404 from an unmatched route, 413 over the body
+        # cap, etc.) carry a code + name/description — surface those as JSON in the
+        # same {"error", "message"} shape the rest of this file uses, rather than
+        # Werkzeug's default HTML error page.
+        if isinstance(err, HTTPException):
+            return jsonify({"error": err.name, "message": err.description}), err.code
+        # Anything else is a genuine bug: log the traceback and never leak internals.
+        app.logger.exception("unhandled exception")
+        return jsonify({"error": "internal_error", "message": "unexpected server error"}), 500
 
     @app.get("/api/health")
     def health():
