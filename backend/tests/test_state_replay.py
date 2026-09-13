@@ -212,11 +212,11 @@ def test_csrf_compare_prefix_identical_until_divergence():
 def test_new_phase2_items_are_available_others_still_not():
     by_id = {i["id"]: i for i in [*registry.to_catalog_dict()["capabilities"],
                                   *registry.to_catalog_dict()["attacks"]]}
-    # Newly runnable in Phase 2.
+    # Runnable at Phase 2 and still runnable now.
     for fid in ("state", "code_token_replay", "csrf_code_injection"):
         assert by_id[fid]["available"] is True, f"{fid} should be available"
-    # Still on the roadmap.
-    for fid in ("static_secret_leak", "dpop", "issuer_id", "phish_then_inject"):
+    # Still on the roadmap at Phase 6 (Phase 7's chain).
+    for fid in ("issuer_id", "phish_then_inject"):
         assert by_id[fid]["available"] is False, f"{fid} should not be available yet"
     # Availability is exactly phase <= CURRENT_PHASE.
     for item in by_id.values():

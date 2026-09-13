@@ -90,6 +90,22 @@ TRACE_FIXTURES: List[Tuple[str, str, ScenarioConfig]] = [
         "replay.json",
         _cfg(atks={"code_token_replay": FeatureState(active=True)}),
     ),
+    (
+        "token_replay_bearer",
+        "tokenReplayBearer.json",
+        _cfg(
+            caps={"dpop": FeatureState(active=False)},
+            atks={"token_replay": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "token_replay_dpop",
+        "tokenReplayDpop.json",
+        _cfg(
+            caps={"dpop": FeatureState(active=True)},
+            atks={"token_replay": FeatureState(active=True)},
+        ),
+    ),
 ]
 
 # The paired-diff fixtures (a CompareResponse each, not a Trace):
@@ -117,6 +133,18 @@ COMPARE_FIXTURES: List[Tuple[str, str, ScenarioConfig, ScenarioConfig]] = [
         _cfg(
             caps={"state": FeatureState(active=True)},
             atks={"csrf_code_injection": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "token_replay_compare",
+        "tokenReplayCompare.json",
+        _cfg(
+            caps={"dpop": FeatureState(active=False)},
+            atks={"token_replay": FeatureState(active=True)},
+        ),
+        _cfg(
+            caps={"dpop": FeatureState(active=True)},
+            atks={"token_replay": FeatureState(active=True)},
         ),
     ),
 ]

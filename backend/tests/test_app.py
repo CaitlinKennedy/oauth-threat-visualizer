@@ -42,15 +42,16 @@ def test_catalog_exposes_new_fields_and_phases(client):
     assert by_id["dpop"]["phase"] == 6
     assert by_id["issuer_id"]["phase"] == 7
     assert by_id["pkce"]["applies_to_grants"] == ["authorization_code"]
-    # CURRENT_PHASE = 2 → pkce/injection + state/replay/CSRF are available; the
-    # later-phase toggles are not.
+    # CURRENT_PHASE = 6 → the earlier phases plus dpop / token replay are
+    # available; only Phase 7's issuer-id / phishing chain is not.
     assert by_id["pkce"]["available"] is True
     assert by_id["auth_code_injection"]["available"] is True
     assert by_id["state"]["available"] is True
     assert by_id["code_token_replay"]["available"] is True
     assert by_id["csrf_code_injection"]["available"] is True
-    assert by_id["dpop"]["available"] is False
-    assert by_id["static_secret_leak"]["available"] is False
+    assert by_id["dpop"]["available"] is True
+    assert by_id["token_replay"]["available"] is True
+    assert by_id["issuer_id"]["available"] is False
 
 
 def test_run_happy_path_returns_live_trace(client):
@@ -88,18 +89,58 @@ def test_run_unsupported_config_is_not_a_fake_success(client):
 
 
 def test_run_unsupported_capability_is_flagged(client):
-    # 'dpop' is Phase 6, so it must still be flagged not-available in Phase 2.
+    # 'issuer_id' is Phase 7, so it must still be flagged not-available at Phase 6.
     r = client.post(
         "/api/run",
         json={
             "config": {
                 "grant": "authorization_code",
-                "capabilities": {"dpop": {"active": True}},
+                "capabilities": {"issuer_id": {"active": True}},
             }
         },
     )
     assert r.status_code == 501
     assert r.get_json()["error"] == "not_available"
+
+
+def test_run_token_replay_bearer_attacker_wins(client):
+    # DPoP off: a stolen bearer token is replayed successfully at the RS.
+    r = client.post("/api/run", json={"config": scenario("token_replay_bearer")})
+    assert r.status_code == 200
+    v = r.get_json()["verdict"]
+    assert v["attacker_got_token"] is True
+    assert v["user_accessed_resource"] is True
+    assert v.get("responsible_capability") is None
+
+
+def test_run_token_replay_dpop_attacker_blocked(client):
+    # DPoP on: the same stolen token dies at the resource server's binding check.
+    r = client.post("/api/run", json={"config": scenario("token_replay_dpop")})
+    assert r.status_code == 200
+    v = r.get_json()["verdict"]
+    assert v["attacker_got_token"] is False
+    assert v["responsible_capability"] == "dpop"
+    assert isinstance(v["blocked_at_seq"], int)
+
+
+def test_compare_token_replay_diverges_at_dpop_binding(client):
+    r = client.post(
+        "/api/run",
+        json={
+            "compare": {
+                "baseline": scenario("token_replay_bearer"),
+                "variant": scenario("token_replay_dpop"),
+            }
+        },
+    )
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["mode"] == "compare"
+    first = body["divergences"][0]
+    assert first["reason"] == "dpop_binding"
+    assert first["capability"] == "dpop"
+    assert body["baseline"]["verdict"]["attacker_got_token"] is True
+    assert body["variant"]["verdict"]["attacker_got_token"] is False
 
 
 def test_run_pkce_happy_path_returns_live_trace(client):

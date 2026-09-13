@@ -184,6 +184,75 @@ PRESETS: List[Dict[str, Any]] = [
         },
         "available": True,
     },
+    {
+        "id": "token_replay_bearer",
+        "flow": 6,
+        "name": "Token replay (plain bearer)",
+        "tagline": "Can a stolen access token be reused?",
+        "description": (
+            "The honest client obtains an access token and reads its resource. The "
+            "attacker steals a copy of the token and replays it at the resource "
+            "server. With a plain bearer token, possession is all that is required — "
+            "the attacker reads the victim's resource."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {"dpop": {"active": False}},
+            "attacks": {"token_replay": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        "id": "token_replay_dpop",
+        "flow": 6,
+        "name": "Token replay defeated by DPoP",
+        "tagline": "Why bind the token to a key?",
+        "description": (
+            "The identical theft now fails: the token is sender-constrained via "
+            "cnf.jkt, so the resource server requires a DPoP proof from the bound "
+            "key. The attacker holds the token but not the client's private key, so "
+            "the key-binding check rejects the replay. This is why DPoP defeats token "
+            "theft at the resource server."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {"dpop": {"active": True}},
+            "attacks": {"token_replay": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        # The flow-2↔3 gesture for DPoP: flip 'dpop' and watch the stolen token go
+        # from a successful read to a block at the resource server's key binding.
+        "id": "token_replay_compare",
+        "flow": 6,
+        "mode": "compare",
+        "name": "Flip DPoP: token replay blocked vs. not",
+        "tagline": "Watch the one step where DPoP decides the outcome.",
+        "description": (
+            "Runs the same access-token replay with DPoP off and DPoP on, side by "
+            "side, and marks the step where the two runs diverge — the resource "
+            "server's DPoP key-binding check."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {"dpop": {"active": True}},
+            "attacks": {"token_replay": {"active": True, "params": {}}},
+        },
+        "compare": {
+            "baseline": {
+                "grant": "authorization_code",
+                "capabilities": {"dpop": {"active": False}},
+                "attacks": {"token_replay": {"active": True, "params": {}}},
+            },
+            "variant": {
+                "grant": "authorization_code",
+                "capabilities": {"dpop": {"active": True}},
+                "attacks": {"token_replay": {"active": True, "params": {}}},
+            },
+        },
+        "available": True,
+    },
 ]
 
 

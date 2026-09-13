@@ -65,6 +65,12 @@ def state_active(config: ScenarioConfig) -> bool:
     return bool(st and st.active)
 
 
+def dpop_active(config: ScenarioConfig) -> bool:
+    """Whether the ``dpop`` capability is active (sender-constraining) for this run."""
+    st = config.capabilities.get("dpop")
+    return bool(st and st.active)
+
+
 def event_at(recorder: Recorder, seq: Optional[int]) -> Optional[StepEvent]:
     """The recorded event with this ``seq`` (or ``None``)."""
     if seq is None:
