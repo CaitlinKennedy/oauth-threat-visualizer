@@ -193,6 +193,11 @@ export interface Preset {
   description: string;
   config: ScenarioConfig;
   available: boolean;
+  // Preset metadata (not part of the frozen trace contract). A preset with
+  // `mode: "compare"` drives the paired-diff endpoint using `compare.baseline`
+  // and `compare.variant` — the flow-2↔3 gesture.
+  mode?: "compare";
+  compare?: { baseline: ScenarioConfig; variant: ScenarioConfig };
 }
 
 export interface PresetsPayload {
