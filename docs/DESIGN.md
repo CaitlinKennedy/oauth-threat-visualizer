@@ -146,8 +146,15 @@ events**:
   `S256(code_verifier) == code_challenge`, RFC 7636 §4.6).
 - An **actor-knowledge ledger** delta: what each actor now holds (e.g. the client has
   `code_verifier`; the attacker has `code` but *not* `code_verifier`).
-- `outcome` (`ok` | `blocked` | `attack_success` | `attack_blocked`) with the responsible
-  capability when blocked.
+- `outcome` (`ok` | `blocked` | `attack_success` | `attack_blocked` | `partial`) with the
+  responsible capability when blocked (`partial` covers a downgraded win, e.g. replay under
+  PKCE — DESIGN §6).
+- A run-level **`verdict`** answering both lanes at once: `attacker_got_token`,
+  `user_got_token`, `user_accessed_resource`, a one-line summary, and — when an attack is
+  blocked — `blocked_at_seq`, the primary `responsible_capability`, and the full
+  `responsible_capabilities` list (multiple bindings can compose). A chained attack adds a
+  `chain_verdict` roll-up on its terminal sub-trace (`attacker_got_token`,
+  `responsible_capabilities`, and where it was `blocked_at`).
 
 A tiny **golden-trace validator** guards the schema. Live runs and the scripted fallback
 emit the *same* contract, so the UI cannot tell them apart.

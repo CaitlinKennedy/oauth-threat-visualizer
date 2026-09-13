@@ -1,6 +1,8 @@
 # Local-only working notes (not part of the project)
 CLAUDE.md
 PROGRESS.md
+artifacts/
+.claude/
 
 # Local reference documents
 *.pdf
