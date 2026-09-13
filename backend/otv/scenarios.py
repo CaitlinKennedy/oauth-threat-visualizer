@@ -100,6 +100,90 @@ PRESETS: List[Dict[str, Any]] = [
         },
         "available": True,
     },
+    {
+        "id": "csrf_no_state",
+        "flow": 4,
+        "name": "CSRF code injection (no state)",
+        "tagline": "Whose session does the code belong to?",
+        "description": (
+            "The attacker obtains a valid authorization code for their own account on "
+            "the victim's client, then delivers it into the victim's browser. With no "
+            "'state' check the victim's client redeems the attacker's code and is bound "
+            "to the attacker's account — the classic login-CSRF."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {"state": {"active": False}},
+            "attacks": {"csrf_code_injection": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        "id": "csrf_state",
+        "flow": 4,
+        "name": "CSRF defeated by state",
+        "tagline": "Why bind the response to the session?",
+        "description": (
+            "The identical injection now fails: the injected code arrives without the "
+            "'state' the victim's client generated, so the client rejects the response "
+            "before redeeming it. This is why 'state' (or PKCE, which also binds the "
+            "response) is required against CSRF."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {"state": {"active": True}},
+            "attacks": {"csrf_code_injection": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        # The flow-2↔3 gesture for CSRF: flip 'state' and watch the injection go
+        # from a successful cross-session binding to a block at the state check.
+        "id": "csrf_state_compare",
+        "flow": 4,
+        "mode": "compare",
+        "name": "Flip state: CSRF blocked vs. not",
+        "tagline": "Watch the one step where state decides the outcome.",
+        "description": (
+            "Runs the same cross-session code injection with 'state' off and 'state' "
+            "on, side by side, and marks the single step where the two runs diverge."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {"state": {"active": True}},
+            "attacks": {"csrf_code_injection": {"active": True, "params": {}}},
+        },
+        "compare": {
+            "baseline": {
+                "grant": "authorization_code",
+                "capabilities": {"state": {"active": False}},
+                "attacks": {"csrf_code_injection": {"active": True, "params": {}}},
+            },
+            "variant": {
+                "grant": "authorization_code",
+                "capabilities": {"state": {"active": True}},
+                "attacks": {"csrf_code_injection": {"active": True, "params": {}}},
+            },
+        },
+        "available": True,
+    },
+    {
+        "id": "replay",
+        "flow": 5,
+        "name": "Auth-code replay defeated by single use",
+        "tagline": "Can a captured code be used twice?",
+        "description": (
+            "The honest client completes a real redemption, then the attacker replays "
+            "the very same code. The second redemption fails at the single-use check in "
+            "the code store — a captured authorization code is worthless once spent."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {},
+            "attacks": {"code_token_replay": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
 ]
 
 

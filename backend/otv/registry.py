@@ -5,8 +5,16 @@ but every id is backed here by a small, self-documenting class: its id, label,
 description, governing spec, parameter schema, default state, incompatibilities,
 and the phase it arrives in. ``GET /api/catalog`` is just this registry
 serialized, so the UI picker is data-driven and never edited when a capability
-or attack is added — a new feature is a new class here plus its enforcement hook
-in the actors.
+or attack is added.
+
+Extension point (the plugin seam)
+---------------------------------
+Capabilities and attacks are **self-registering modules**. Each lives in its own
+file under :mod:`otv.catalog` and, at import time, calls :func:`capability` or
+:func:`attack` to add itself to the catalog. There is no hand-edited central
+list: :mod:`otv.catalog` auto-discovers and imports every module in that package
+(ordered by filename), so *adding a capability or attack in a later phase is just
+adding a file there* — no edit to this module or any shared list.
 
 The wire schema is frozen; this registry is what grows per phase.
 """
@@ -20,10 +28,11 @@ from .contract import SpecRef
 
 # The highest phase whose capabilities/attacks are actually runnable in this
 # build. ``RegistryItem.available`` is derived from it, so shipping a new phase is
-# a one-line bump here rather than edits scattered across items. Phase 1 makes
-# ``pkce`` and ``auth_code_injection`` runnable; every other toggle stays
+# a one-line bump here rather than edits scattered across items. Phase 2 makes
+# ``state``, ``code_token_replay`` and ``csrf_code_injection`` runnable (on top of
+# Phase 1's ``pkce`` and ``auth_code_injection``); every later toggle stays
 # unavailable until its own phase lands.
-CURRENT_PHASE = 1
+CURRENT_PHASE = 2
 
 
 @dataclass(frozen=True)
@@ -70,6 +79,13 @@ class RegistryItem:
     # ``oauth_2_1`` can forbid the ``implicit`` grant). Both empty for a plain item.
     implies: List[str] = field(default_factory=list)
     forbids: List[str] = field(default_factory=list)
+    # Names of the first-class ``Check``s (contract.Check.name) this item's own
+    # enforcement emits. Lets a check-to-capability attribution (e.g. "which
+    # toggle blocked this run?") be DERIVED by scanning the registry instead of
+    # living in a hand-maintained central map — see
+    # ``engine.runners.support.CHECK_TO_CAPABILITY``. Empty for an item that
+    # emits no first-class check (e.g. an attack).
+    check_names: List[str] = field(default_factory=list)
 
     @property
     def available(self) -> bool:
@@ -90,6 +106,7 @@ class RegistryItem:
             "applies_to_grants": list(self.applies_to_grants),
             "implies": list(self.implies),
             "forbids": list(self.forbids),
+            "check_names": list(self.check_names),
             "available": self.available,
         }
 
@@ -102,110 +119,48 @@ class Attack(RegistryItem):
     pass
 
 
-def _cap(**kw: Any) -> Capability:
-    return Capability(kind="capability", **kw)
+# --- The self-registration seam --------------------------------------------
+# Feature modules under ``otv.catalog`` call ``capability(...)`` / ``attack(...)``
+# at import time. Insertion order within each kind is the module discovery order
+# (filename-sorted, see otv/catalog/__init__.py), which is what ``to_catalog_dict``
+# — and therefore the picker — renders in.
+
+_CAPABILITIES: List[Capability] = []
+_ATTACKS: List[Attack] = []
+_BY_ID: Dict[str, RegistryItem] = {}
 
 
-def _atk(**kw: Any) -> Attack:
-    return Attack(kind="attack", **kw)
+def _register(item: RegistryItem) -> RegistryItem:
+    if item.id in _BY_ID:
+        raise ValueError(f"duplicate registry id {item.id!r}")
+    _BY_ID[item.id] = item
+    if item.kind == "capability":
+        _CAPABILITIES.append(item)  # type: ignore[arg-type]
+    else:
+        _ATTACKS.append(item)  # type: ignore[arg-type]
+    return item
 
 
-# --- The catalogue (DESIGN.md §4 capabilities, §5 attacks) ------------------
-# Phase numbers say when each becomes runnable; Phase 0 ships the roadmap so the
-# picker shows what is coming.
+def capability(**kw: Any) -> Capability:
+    """Define and register a capability. Called from a self-registering module."""
+    return _register(Capability(kind="capability", **kw))  # type: ignore[return-value]
 
-CAPABILITIES: List[Capability] = [
-    _cap(
-        id="pkce",
-        label="PKCE",
-        description="Bind the authorization code to a per-request verifier (S256).",
-        spec_ref=SpecRef(rfc="RFC 7636", section="§4"),
-        phase=1,
-        applies_to_grants=["authorization_code"],
-        params=[
-            ParamSpec(
-                name="method",
-                type="enum",
-                default="S256",
-                description="Code challenge method.",
-                choices=["S256", "plain"],
-            )
-        ],
-    ),
-    _cap(
-        id="state",
-        label="state parameter",
-        description="Bind the response to the user's session (anti-CSRF).",
-        spec_ref=SpecRef(rfc="RFC 6749", section="§10.12"),
-        phase=2,
-        applies_to_grants=["authorization_code"],
-    ),
-    _cap(
-        id="dpop",
-        label="DPoP",
-        description="Sender-constrained tokens via a proof-of-possession key.",
-        spec_ref=SpecRef(rfc="RFC 9449", section="§4"),
-        phase=6,
-        # Sender-constraining applies to any grant that yields a token.
-        applies_to_grants=[],
-    ),
-    _cap(
-        id="issuer_id",
-        label="AS Issuer Identification",
-        description="The AS returns its iss in the authorization response (mix-up defense).",
-        spec_ref=SpecRef(rfc="RFC 9207", section="§2"),
-        phase=7,
-        applies_to_grants=["authorization_code"],
-    ),
-]
 
-ATTACKS: List[Attack] = [
-    _atk(
-        id="auth_code_injection",
-        label="Auth-code injection",
-        description="Inject an attacker-obtained code into a victim's session.",
-        spec_ref=SpecRef(rfc="RFC 9700", section="§4.5"),
-        phase=1,
-        applies_to_grants=["authorization_code"],
-        incompatibilities=[],
-    ),
-    _atk(
-        id="code_token_replay",
-        label="Auth-code / token replay",
-        description="Reuse a captured code or token a second time.",
-        spec_ref=SpecRef(rfc="RFC 6819", section="§4.4.1.1"),
-        phase=2,
-        # Code replay is auth-code-specific; token replay applies to any grant, so
-        # this item is not restricted to a single grant.
-        applies_to_grants=[],
-    ),
-    _atk(
-        id="static_secret_leak",
-        label="Static-secret leak",
-        description="A never-rotating client secret is captured and reused.",
-        spec_ref=SpecRef(rfc="RFC 6749", section="§10.3"),
-        phase=5,
-        applies_to_grants=["client_credentials"],
-    ),
-    _atk(
-        id="phishing",
-        label="Phishing / smishing",
-        description="A fake login/consent lure harvests credentials or a code.",
-        spec_ref=SpecRef(rfc="RFC 6819", section="§4.4.1.9"),
-        phase=7,
-        applies_to_grants=["authorization_code"],
-    ),
-    _atk(
-        id="phish_then_inject",
-        label="Chained: phish then inject",
-        description="Phishing harvests a detail that enables auth-code injection.",
-        spec_ref=SpecRef(rfc="RFC 9700", section="§4"),
-        phase=7,
-        applies_to_grants=["authorization_code"],
-    ),
-]
+def attack(**kw: Any) -> Attack:
+    """Define and register an attack. Called from a self-registering module."""
+    return _register(Attack(kind="attack", **kw))  # type: ignore[return-value]
 
-_BY_ID: Dict[str, RegistryItem] = {i.id: i for i in [*CAPABILITIES, *ATTACKS]}
+
+# Trigger discovery: importing the package auto-imports every feature module,
+# each of which self-registers via the helpers above. This is the only line that
+# needs to know features exist; the individual items are never listed here.
+from . import catalog as _catalog  # noqa: E402  (import for its registration side effects)
+
+_catalog.load_all()
+
+# Public, ordered views used across the backend and the tests.
+CAPABILITIES: List[Capability] = _CAPABILITIES
+ATTACKS: List[Attack] = _ATTACKS
 
 
 def get(item_id: str) -> RegistryItem | None:

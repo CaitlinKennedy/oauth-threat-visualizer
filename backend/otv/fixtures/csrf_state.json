@@ -1,0 +1,370 @@
+{
+  "correlation_id": "run_gRxSiogqRdO_AY_I0XJqHsL4zkPIS0ySmeSVUZhFJZA",
+  "config": {
+    "grant": "authorization_code",
+    "capabilities": {
+      "state": {
+        "active": true,
+        "params": {}
+      }
+    },
+    "attacks": {
+      "csrf_code_injection": {
+        "active": true,
+        "params": {}
+      }
+    }
+  },
+  "verdict": {
+    "attacker_got_token": false,
+    "user_got_token": false,
+    "user_accessed_resource": false,
+    "one_line": "Attacker obtained an access token: NO \u2014 the 'state' check blocked the cross-session code injection. The injected code arrived without the 'state' the victim's client generated, so the client rejected the response before redeeming it. User obtained an access token: NO \u2014 the victim's own login was not completed.",
+    "blocked_at_seq": 7,
+    "responsible_capability": "state",
+    "responsible_capabilities": [
+      "state"
+    ]
+  },
+  "events": [
+    {
+      "seq": 1,
+      "actor": "client",
+      "on_behalf_of": "user",
+      "phase": "authorize",
+      "summary": "Client starts the authorization-code flow.",
+      "detail": "The client builds an authorization request and redirects the user's browser to the authorization server. It asks for an authorization 'code' (not a token directly) and includes a 'state' value to tie the eventual response back to this browser session.",
+      "outcome": "ok",
+      "refs": [],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://auth.oauthlab.internal/oauth/authorize",
+          "headers": {},
+          "body": {
+            "response_type": "code",
+            "client_id": "demo-web-app",
+            "redirect_uri": "https://app.oauthlab.internal/callback",
+            "scope": "profile email",
+            "state": "st_pbWrbBGVTPqpcgONET2am0TCOmWPakJHrQEmFneB85c"
+          }
+        },
+        "response": {
+          "status": 302,
+          "headers": {},
+          "body": {
+            "redirecting_to": "authorization_server"
+          }
+        },
+        "highlight": [
+          "request.body.response_type",
+          "request.body.state"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {
+        "client": {
+          "has": [
+            "state",
+            "redirect_uri",
+            "client_credentials"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.1"
+        }
+      ]
+    },
+    {
+      "seq": 2,
+      "actor": "auth_server",
+      "on_behalf_of": "attacker",
+      "phase": "authorize",
+      "summary": "Authorization server receives the authorization request.",
+      "detail": "The user's browser arrives at the authorization endpoint carrying the client's request. The server checks that the client is registered, that the redirect URI exactly matches one it registered, and that the response type is 'code' for the authorization-code grant.",
+      "outcome": "ok",
+      "refs": [
+        1
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://auth.oauthlab.internal/oauth/authorize",
+          "headers": {
+            "Host": "auth.oauthlab.internal"
+          },
+          "body": {
+            "response_type": "code",
+            "client_id": "demo-web-app",
+            "redirect_uri": "https://app.oauthlab.internal/callback",
+            "scope": "profile email"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "page": "login_and_consent"
+          }
+        },
+        "highlight": [
+          "request.body.client_id",
+          "request.body.redirect_uri",
+          "request.body.response_type"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.1"
+        }
+      ]
+    },
+    {
+      "seq": 3,
+      "actor": "auth_server",
+      "on_behalf_of": "attacker",
+      "phase": "authorize",
+      "summary": "Authorization server checks client registration and redirect URI.",
+      "detail": "The server confirms the client_id is registered and that the requested redirect URI exactly matches one registered for that client, so the code can only be delivered to the client's own endpoint.",
+      "outcome": "ok",
+      "refs": [
+        2
+      ],
+      "check": {
+        "name": "redirect_uri_registered",
+        "rule": "client_id is registered AND redirect_uri exactly matches a registered URI",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a73.1.2"
+        },
+        "expected": "registered client + exact redirect_uri match",
+        "actual": "registered client + exact match"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a73.1.2"
+        }
+      ]
+    },
+    {
+      "seq": 4,
+      "actor": "auth_server",
+      "on_behalf_of": "attacker",
+      "phase": "authorize",
+      "summary": "User authenticates and consents to the requested scope.",
+      "detail": "The synthetic user 'mallory' logs in and approves the client's request for scope 'profile email'. No real credentials or PII are involved; the account is bundled with the tool.",
+      "outcome": "ok",
+      "refs": [
+        3
+      ],
+      "http": {
+        "request": {
+          "method": "POST",
+          "url": "https://auth.oauthlab.internal/login",
+          "headers": {},
+          "body": {
+            "username": "mallory",
+            "consent": "approve",
+            "scope": "profile email"
+          }
+        },
+        "response": {
+          "status": 302,
+          "headers": {},
+          "body": {
+            "consent": "granted"
+          }
+        },
+        "highlight": [
+          "request.body.consent"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {
+        "auth_server": {
+          "has": [
+            "user_session",
+            "consent"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.1"
+        }
+      ]
+    },
+    {
+      "seq": 5,
+      "actor": "auth_server",
+      "on_behalf_of": "attacker",
+      "phase": "redirect",
+      "summary": "Authorization server redirects back with a single-use code.",
+      "detail": "The server issues a short-lived, single-use authorization code and redirects the browser to the client's registered redirect URI, echoing the 'state' value unchanged. The code is bound server-side to this client and redirect URI; it is not itself a token.",
+      "outcome": "ok",
+      "refs": [
+        2
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://app.oauthlab.internal/callback",
+          "headers": {}
+        },
+        "response": {
+          "status": 302,
+          "headers": {
+            "Location": "https://app.oauthlab.internal/callback?code=ac_LMwV8lSfRdKlA-CVjVM1jtzbT4HwnUKltqpfZ-y8L6o&state=None"
+          },
+          "body": {
+            "code": "ac_LMwV8lSfRdKlA-CVjVM1jtzbT4HwnUKltqpfZ-y8L6o"
+          }
+        },
+        "highlight": [
+          "response.body.code",
+          "response.body.state"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "client"
+      },
+      "knowledge_delta": {
+        "auth_server": {
+          "has": [
+            "authorization_code"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.2"
+        }
+      ]
+    },
+    {
+      "seq": 6,
+      "actor": "attacker",
+      "on_behalf_of": "attacker",
+      "phase": "redirect",
+      "summary": "Attacker crafts a CSRF callback carrying its own code.",
+      "detail": "The attacker logged in under its own account and obtained a valid authorization code for the victim's client. It now sends the victim a crafted link to the client's callback carrying that code (but not the victim client's 'state'). If the victim follows it, the client will redeem a code bound to the ATTACKER's account \u2014 binding the victim's session to the attacker unless a 'state' check rejects the mismatch.",
+      "outcome": "ok",
+      "refs": [
+        5
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://app.oauthlab.internal/callback?code=ac_LMwV8lSfRdKlA-CVjVM1jtzbT4HwnUKltqpfZ-y8L6o",
+          "headers": {},
+          "body": {
+            "code": "ac_LMwV8lSfRdKlA-CVjVM1jtzbT4HwnUKltqpfZ-y8L6o"
+          }
+        },
+        "response": {
+          "status": 302,
+          "headers": {},
+          "body": {
+            "delivered_to": "victim_browser"
+          }
+        },
+        "highlight": [
+          "request.body.code"
+        ],
+        "source_actor": "attacker",
+        "target_actor": "client"
+      },
+      "knowledge_delta": {
+        "attacker": {
+          "has": [
+            "authorization_code(attacker_account)"
+          ],
+          "lacks": [
+            "victim_session_state"
+          ]
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a710.12"
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "actor": "client",
+      "on_behalf_of": "user",
+      "phase": "redirect",
+      "summary": "Client receives the authorization code on its redirect URI.",
+      "detail": "The browser lands back on the client's redirect URI carrying the code and the echoed 'state'. The returned 'state' does NOT match the one the client generated. Because the 'state' check is enforced, the client REJECTS the response and does not redeem the code \u2014 this is exactly the cross-session code injection (login CSRF) that binding the response to the session prevents.",
+      "outcome": "attack_blocked",
+      "refs": [
+        1
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://app.oauthlab.internal/callback?code=ac_LMwV8lSfRdKlA-CVjVM1jtzbT4HwnUKltqpfZ-y8L6o&state=None",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "state_valid": false
+          }
+        },
+        "highlight": [
+          "response.body.state_valid"
+        ],
+        "source_actor": "client",
+        "target_actor": "client"
+      },
+      "check": {
+        "name": "state_matches_session",
+        "rule": "returned state == state the client generated",
+        "result": "FAIL",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a710.12"
+        },
+        "expected": "st_pbWrbBGVTPqpcgONET2am0TCOmWPakJHrQEmFneB85c",
+        "actual": "(absent)"
+      },
+      "knowledge_delta": {
+        "client": {
+          "has": [
+            "authorization_code"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.2"
+        }
+      ]
+    }
+  ],
+  "schema_version": "1.0",
+  "parent_id": null,
+  "chain_id": null
+}

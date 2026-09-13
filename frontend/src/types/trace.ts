@@ -233,6 +233,10 @@ export interface RegistryItem {
   // (e.g. oauth_2_1 forbids "implicit"). Both empty for a plain item.
   implies: string[];
   forbids: string[];
+  // Names of the first-class checks (StepEvent.check.name) this item's own
+  // enforcement emits, e.g. ["pkce_verifier_match"]. Empty for an item that
+  // emits no first-class check (e.g. an attack).
+  check_names: string[];
   available: boolean;
 }
 

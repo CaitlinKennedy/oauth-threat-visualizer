@@ -19,12 +19,7 @@ import pytest
 
 from otv.engine.compare import run_compare
 from otv.engine.conductor import run
-from scripts.regen import (
-    COMPARE_BASELINE,
-    COMPARE_FIXTURE,
-    COMPARE_VARIANT,
-    TRACE_FIXTURES,
-)
+from scripts.regen import COMPARE_FIXTURES, TRACE_FIXTURES
 
 BACKEND = Path(__file__).resolve().parent.parent
 REPO = BACKEND.parent
@@ -77,8 +72,8 @@ def test_live_run_matches_committed_trace_fixture(backend_id, frontend_name, con
 
 @pytest.mark.parametrize(
     "backend_id,frontend_name",
-    [(b, f) for b, f, _ in TRACE_FIXTURES] + [COMPARE_FIXTURE],
-    ids=[f[0] for f in TRACE_FIXTURES] + [COMPARE_FIXTURE[0]],
+    [(b, f) for b, f, _ in TRACE_FIXTURES] + [(b, f) for b, f, _, _ in COMPARE_FIXTURES],
+    ids=[f[0] for f in TRACE_FIXTURES] + [f[0] for f in COMPARE_FIXTURES],
 )
 def test_backend_and_frontend_fixtures_are_byte_identical(backend_id, frontend_name):
     backend = json.loads((BACKEND_FIXTURES / f"{backend_id}.json").read_text())
@@ -89,9 +84,14 @@ def test_backend_and_frontend_fixtures_are_byte_identical(backend_id, frontend_n
     )
 
 
-def test_live_compare_matches_committed_compare_fixture():
-    live = run_compare(COMPARE_BASELINE, COMPARE_VARIANT).to_dict()
-    committed = json.loads((BACKEND_FIXTURES / f"{COMPARE_FIXTURE[0]}.json").read_text())
+@pytest.mark.parametrize(
+    "backend_id,baseline,variant",
+    [(b, base, var) for b, _, base, var in COMPARE_FIXTURES],
+    ids=[f[0] for f in COMPARE_FIXTURES],
+)
+def test_live_compare_matches_committed_compare_fixture(backend_id, baseline, variant):
+    live = run_compare(baseline, variant).to_dict()
+    committed = json.loads((BACKEND_FIXTURES / f"{backend_id}.json").read_text())
     assert _skeleton(live["baseline"]["events"]) == _skeleton(
         committed["baseline"]["events"]
     )
@@ -99,5 +99,5 @@ def test_live_compare_matches_committed_compare_fixture():
         committed["variant"]["events"]
     )
     assert live["divergences"] == committed["divergences"], (
-        "compare divergences drifted — run `python -m scripts.regen`"
+        f"{backend_id}: compare divergences drifted — run `python -m scripts.regen`"
     )

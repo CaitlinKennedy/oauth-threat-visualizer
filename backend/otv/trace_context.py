@@ -25,7 +25,7 @@ from __future__ import annotations
 import contextvars
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 
 @dataclass(frozen=True)
@@ -39,11 +39,19 @@ class TraceFrame:
     same ``AuthServer.token(request)`` serves the honest client and the attacker
     without the caller identity crossing the pure-protocol interface. ``None``
     means "the default legitimate client" so the happy path is unchanged.
+
+    ``as_user`` is the identity authenticated in the current browser session — the
+    account the authorization endpoint logs in and mints a code for. Like a login
+    cookie, it is ambient session state, not a protocol field, so it lives here
+    rather than in ``authorize``'s signature. ``None`` means the environment's
+    default user, keeping the happy path and injection unchanged; the CSRF scenario
+    sets it to the *attacker's* account (the attacker consenting for themselves).
     """
 
     on_behalf_of: str = "user"
     actor_instance: Optional[str] = None
     source_actor: Optional[str] = None
+    as_user: Optional[Any] = None
 
 
 _current: contextvars.ContextVar[Optional[TraceFrame]] = contextvars.ContextVar(
@@ -57,6 +65,7 @@ def acting(
     on_behalf_of: str = "user",
     actor_instance: Optional[str] = None,
     source_actor: Optional[str] = None,
+    as_user: Optional[Any] = None,
 ) -> Iterator[None]:
     """Scope the ambient trace frame for the duration of an actor interaction.
 
@@ -64,12 +73,16 @@ def acting(
     inside another, and the previous frame is restored on exit. ``source_actor``
     names the peer that originated the request being handled (e.g. ``"attacker"``
     for an injected token redemption); leave it unset for the honest client.
+    ``as_user`` names the account authenticated in the current session (the CSRF
+    scenario logs in the attacker's own account); leave it unset for the default
+    user.
     """
     token = _current.set(
         TraceFrame(
             on_behalf_of=on_behalf_of,
             actor_instance=actor_instance,
             source_actor=source_actor,
+            as_user=as_user,
         )
     )
     try:
@@ -94,3 +107,8 @@ def current_actor_instance() -> Optional[str]:
 def current_source_actor() -> Optional[str]:
     """The peer originating the current inbound request, or ``None`` if unset."""
     return current_frame().source_actor
+
+
+def current_as_user() -> Optional[Any]:
+    """The account authenticated in the current session, or ``None`` if unset."""
+    return current_frame().as_user

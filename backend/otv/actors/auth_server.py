@@ -209,7 +209,11 @@ class AuthServerImpl(AuthServer):
         if not redirect_ok:
             raise OAuthError("invalid_request", f"unregistered redirect_uri {redirect_uri!r}")
 
-        user = self.env.user
+        # The account authenticated in this browser session is ambient (a login
+        # cookie), so it comes from the trace context, defaulting to the
+        # environment's user. The CSRF scenario logs in the *attacker's* own
+        # account here — a genuine login for which the AS mints a valid code.
+        user = trace_context.current_as_user() or self.env.user
         self.recorder.emit(
             actor="auth_server",
             phase="authorize",

@@ -69,6 +69,7 @@ class ClientImpl(Client):
         *,
         pkce_method: Optional[str] = None,
         registered_client=None,
+        enforce_state: bool = False,
     ):
         self.recorder = recorder
         self.env = env
@@ -76,10 +77,12 @@ class ClientImpl(Client):
         # confidential web client (the happy path); the injection scenario passes
         # the public client so PKCE is honestly the lone gate.
         self.registered = registered_client or env.client
-        # A per-flow anti-CSRF value. The 'state' capability (binding the
-        # response to the session) is exercised fully in a later phase; the
-        # client already generates and echoes it here.
+        # A per-flow anti-CSRF value bound to this browser session. When the
+        # 'state' capability is active (``enforce_state``), a returned state that
+        # does not match this value is REJECTED on the redirect; when inactive, the
+        # mismatch is reported honestly but not enforced (RFC 6749 §10.12).
         self.state = crypto.new_opaque_token(prefix="st_")
+        self.enforce_state = enforce_state
         # PKCE (RFC 7636): when the capability is active, the client generates a
         # real per-request verifier and derives the challenge it sends to the AS.
         # The verifier never leaves the client until the back-channel token
@@ -157,27 +160,41 @@ class ClientImpl(Client):
         code = redirect["code"]
         returned_state = redirect.get("state")
         state_ok = returned_state == self.state
-        detail = (
-            "The browser lands back on the client's redirect URI carrying the code "
-            "and the echoed 'state'. "
-            + (
+        # Honest outcome: a state mismatch is never an "ok" step. When the 'state'
+        # capability is active it is ENFORCED (the client rejects and does not
+        # redeem — "attack_blocked"); when inactive the mismatch is reported
+        # truthfully but not enforced ("blocked"), the P1 honest-report behavior.
+        if state_ok:
+            state_detail = (
                 "The client confirms the 'state' matches the one it generated, so the "
                 "response belongs to the session it started."
-                if state_ok
-                else "The returned 'state' does NOT match the one the client generated — "
+            )
+            outcome = "ok"
+        elif self.enforce_state:
+            state_detail = (
+                "The returned 'state' does NOT match the one the client generated. "
+                "Because the 'state' check is enforced, the client REJECTS the response "
+                "and does not redeem the code — this is exactly the cross-session code "
+                "injection (login CSRF) that binding the response to the session prevents."
+            )
+            outcome = "attack_blocked"
+        else:
+            state_detail = (
+                "The returned 'state' does NOT match the one the client generated — "
                 "the response cannot be tied to the session that started the flow, which "
                 "is the signature of CSRF or a cross-session code injection."
             )
+            outcome = "blocked"
+        detail = (
+            "The browser lands back on the client's redirect URI carrying the code "
+            "and the echoed 'state'. " + state_detail
         )
         seq = self.recorder.emit(
             actor="client",
             phase="redirect",
             summary="Client receives the authorization code on its redirect URI.",
             detail=detail,
-            # Honest outcome: a state mismatch is not an "ok" step. (Hard rejection
-            # when the 'state' capability is enforced arrives in a later phase; here
-            # the check result is reported truthfully rather than misrepresented.)
-            outcome="ok" if state_ok else "blocked",
+            outcome=outcome,
             # Non-linear causal anchor: this depends on the client's own original
             # request, remembered internally rather than passed across the seam.
             refs=[self._request_seq] if self._request_seq is not None else [],
@@ -204,7 +221,14 @@ class ClientImpl(Client):
             },
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.2")],
         )
-        return {"code": code, "state_ok": state_ok, "seq": seq}
+        # ``blocked`` is True only when an active 'state' check rejected the
+        # response; a caller (a runner) uses it to stop before redemption.
+        return {
+            "code": code,
+            "state_ok": state_ok,
+            "blocked": self.enforce_state and not state_ok,
+            "seq": seq,
+        }
 
     def exchange_code(self, code: str, *, auth_server: "AuthServer") -> Dict[str, Any]:
         client = self.registered
