@@ -109,20 +109,20 @@ def test_single_use_code_is_enforced(happy_trace):
 
 
 def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
-    # A Phase 2+ capability is still refused in Phase 1.
+    # A later-phase capability (dpop, Phase 6) is still refused.
     with pytest.raises(UnsupportedScenario):
         run(
             ScenarioConfig(
                 grant="authorization_code",
-                capabilities={"state": FeatureState(active=True)},
+                capabilities={"dpop": FeatureState(active=True)},
             )
         )
-    # A Phase 2+ attack is still refused.
+    # A later-phase attack (static-secret leak, Phase 5) is still refused.
     with pytest.raises(UnsupportedScenario):
         run(
             ScenarioConfig(
                 grant="authorization_code",
-                attacks={"code_token_replay": FeatureState(active=True)},
+                attacks={"static_secret_leak": FeatureState(active=True)},
             )
         )
     # Other grants are not implemented yet.

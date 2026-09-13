@@ -42,45 +42,84 @@ ENUMS_PATH = BACKEND / "otv" / "contract_enums.json"
 BACKEND_FIXTURES = BACKEND / "otv" / "fixtures"
 FRONTEND_FIXTURES = REPO / "frontend" / "src" / "fixtures"
 
+def _cfg(caps=None, atks=None) -> ScenarioConfig:
+    return ScenarioConfig(
+        grant="authorization_code",
+        capabilities=caps or {},
+        attacks=atks or {},
+    )
+
+
 # (backend fixture id, frontend basename, config) for the single-trace fixtures.
 TRACE_FIXTURES: List[Tuple[str, str, ScenarioConfig]] = [
-    (
-        "happy_path_auth_code",
-        "happyPath.json",
-        ScenarioConfig(grant="authorization_code"),
-    ),
+    ("happy_path_auth_code", "happyPath.json", _cfg()),
     (
         "injection_no_pkce",
         "injectionNoPkce.json",
-        ScenarioConfig(
-            grant="authorization_code",
-            capabilities={"pkce": FeatureState(active=False)},
-            attacks={"auth_code_injection": FeatureState(active=True)},
+        _cfg(
+            caps={"pkce": FeatureState(active=False)},
+            atks={"auth_code_injection": FeatureState(active=True)},
         ),
     ),
     (
         "injection_pkce",
         "injectionPkce.json",
-        ScenarioConfig(
-            grant="authorization_code",
-            capabilities={"pkce": FeatureState(active=True, params={"method": "S256"})},
-            attacks={"auth_code_injection": FeatureState(active=True)},
+        _cfg(
+            caps={"pkce": FeatureState(active=True, params={"method": "S256"})},
+            atks={"auth_code_injection": FeatureState(active=True)},
         ),
+    ),
+    (
+        "csrf_no_state",
+        "csrfNoState.json",
+        _cfg(
+            caps={"state": FeatureState(active=False)},
+            atks={"csrf_code_injection": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "csrf_state",
+        "csrfState.json",
+        _cfg(
+            caps={"state": FeatureState(active=True)},
+            atks={"csrf_code_injection": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "replay",
+        "replay.json",
+        _cfg(atks={"code_token_replay": FeatureState(active=True)}),
     ),
 ]
 
-# The paired-diff fixture (a CompareResponse, not a Trace).
-COMPARE_FIXTURE = ("injection_pkce_compare", "injectionCompare.json")
-COMPARE_BASELINE = ScenarioConfig(
-    grant="authorization_code",
-    capabilities={"pkce": FeatureState(active=False)},
-    attacks={"auth_code_injection": FeatureState(active=True)},
-)
-COMPARE_VARIANT = ScenarioConfig(
-    grant="authorization_code",
-    capabilities={"pkce": FeatureState(active=True, params={"method": "S256"})},
-    attacks={"auth_code_injection": FeatureState(active=True)},
-)
+# The paired-diff fixtures (a CompareResponse each, not a Trace):
+# (backend id, frontend basename, baseline config, variant config).
+COMPARE_FIXTURES: List[Tuple[str, str, ScenarioConfig, ScenarioConfig]] = [
+    (
+        "injection_pkce_compare",
+        "injectionCompare.json",
+        _cfg(
+            caps={"pkce": FeatureState(active=False)},
+            atks={"auth_code_injection": FeatureState(active=True)},
+        ),
+        _cfg(
+            caps={"pkce": FeatureState(active=True, params={"method": "S256"})},
+            atks={"auth_code_injection": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "csrf_state_compare",
+        "csrfStateCompare.json",
+        _cfg(
+            caps={"state": FeatureState(active=False)},
+            atks={"csrf_code_injection": FeatureState(active=True)},
+        ),
+        _cfg(
+            caps={"state": FeatureState(active=True)},
+            atks={"csrf_code_injection": FeatureState(active=True)},
+        ),
+    ),
+]
 
 
 def _write_json(path: Path, data: object) -> None:
@@ -108,10 +147,11 @@ def regen_fixtures() -> None:
         validate(trace)
         _write_both(backend_id, frontend_name, trace.to_dict())
 
-    resp = run_compare(COMPARE_BASELINE, COMPARE_VARIANT)
-    payload = resp.to_dict()
-    validate_compare_response(payload)
-    _write_both(COMPARE_FIXTURE[0], COMPARE_FIXTURE[1], payload)
+    for backend_id, frontend_name, baseline, variant in COMPARE_FIXTURES:
+        resp = run_compare(baseline, variant)
+        payload = resp.to_dict()
+        validate_compare_response(payload)
+        _write_both(backend_id, frontend_name, payload)
 
 
 if __name__ == "__main__":

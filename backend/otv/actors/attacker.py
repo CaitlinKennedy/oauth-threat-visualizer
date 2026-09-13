@@ -188,6 +188,190 @@ class AttackerImpl(Attacker):
         )
         return {"got_token": True, "at_seq": seq, "responsible_check": None}
 
+    # --- Auth-code replay (RFC 6749 §4.1.2 / RFC 6819 §4.4.1.1) ------------
+
+    def capture_code(self, code: str, *, obtained_from_seq: int) -> Dict[str, Any]:
+        """Capture a copy of the authorization code from the front channel.
+
+        Unlike interception-then-injection, here the *honest* client also holds the
+        code and will redeem it. The attacker keeps a copy to replay later. A
+        captured code is only useful until it is spent — the single-use property is
+        what decides the replay.
+        """
+        self._stolen_code = code
+        seq = self.recorder.emit(
+            actor="attacker",
+            phase="redirect",
+            summary="Attacker captures a copy of the authorization code.",
+            detail=(
+                "The code travels the front channel — the redirect in the user's "
+                "browser — so the attacker can capture a copy (via Referer, history, "
+                "or a log) even while the legitimate client also receives it. The "
+                "attacker keeps the code to try replaying it after the client has "
+                "redeemed it."
+            ),
+            outcome="ok",
+            refs=[obtained_from_seq],
+            http=HttpExchange(
+                request=HttpMessage(
+                    method="GET",
+                    url=f"{self.origin}/harvest",
+                    headers={"X-Observed": "front-channel redirect"},
+                ),
+                response=HttpMessage(status=200, body={"captured_code": code}),
+                highlight=["response.body.captured_code"],
+                source_actor="auth_server",
+                target_actor="attacker",
+            ),
+            knowledge_delta={
+                "attacker": KnowledgeState(has=["authorization_code"]),
+            },
+            spec_refs=[SpecRef(rfc="RFC 6819", section="§4.4.1.1")],
+        )
+        self._intercept_seq = seq
+        return {"seq": seq}
+
+    def replay_code(self, *, auth_server: AuthServer) -> Dict[str, Any]:
+        """Replay the captured code at the token endpoint after it was redeemed.
+
+        The honest client already spent this code, so the authorization server's
+        single-use store has marked it used. The genuine ``authorization_code_
+        single_use`` check (RFC 6749 §4.1.2) rejects the second redemption. Returns
+        ``{"got_token": bool, "at_seq": int | None}``.
+        """
+        code = self._stolen_code
+        assert code is not None, "replay_code called before capture_code"
+        client = self.env.public_client
+        # A public-client flow: the attacker presents the public client_id and the
+        # captured code. No verifier is needed (the flow ran without PKCE), so
+        # single use is honestly the property under test.
+        token_request = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": client.redirect_uri,
+            "client_id": client.client_id,
+        }
+        try:
+            with acting(on_behalf_of="attacker", source_actor="attacker"):
+                token_response = auth_server.token(token_request)
+        except OAuthError as exc:
+            self.recorder.emit(
+                actor="attacker",
+                phase="token",
+                summary="Attacker's replay of the spent code is rejected.",
+                detail=(
+                    "The honest client already redeemed this code, so the "
+                    "authorization server marked it used. Replaying the very same code "
+                    "fails the single-use check and the token endpoint rejects it: a "
+                    "captured authorization code is worthless once it has been spent."
+                ),
+                outcome="attack_blocked",
+                # Truthful causality: the rejection is the single-use check the
+                # endpoint just failed.
+                refs=[exc.at_seq] if exc.at_seq is not None else [self.recorder.last_seq],
+                http=HttpExchange(
+                    request=HttpMessage(method="POST", url=self.env.token_url),
+                    response=HttpMessage(status=exc.status, body={"error": exc.error}),
+                    highlight=["response.body.error"],
+                    source_actor="auth_server",
+                    target_actor="attacker",
+                ),
+                spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.2")],
+            )
+            return {"got_token": False, "at_seq": exc.at_seq}
+
+        # Defensive: a replay of a spent single-use code must not succeed. If it
+        # ever did, record it honestly rather than hide it.
+        self._access_token = token_response["access_token"]
+        seq = self.recorder.emit(
+            actor="attacker",
+            phase="token",
+            summary="Attacker's replayed code was accepted (single-use not enforced).",
+            detail=(
+                "The token endpoint accepted a second redemption of the same code, so "
+                "single-use enforcement is not holding. This should never happen when "
+                "the single-use code store is working."
+            ),
+            outcome="attack_success",
+            refs=[self.recorder.last_seq],
+            knowledge_delta={"attacker": KnowledgeState(has=["access_token"])},
+            spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.2")],
+        )
+        return {"got_token": True, "at_seq": seq}
+
+    # --- CSRF / cross-session code injection (RFC 6749 §10.12) -------------
+
+    def stage_csrf_injection(self, code: str, *, obtained_from_seq: int) -> Dict[str, Any]:
+        """Deliver the attacker's own code into the victim's client session.
+
+        The attacker has logged in as *itself* and obtained a valid authorization
+        code for the victim's client (bound to the attacker's account). It now
+        delivers that code to the victim's browser via a crafted link to the
+        client's callback. The victim's client cannot tell the response did not
+        belong to the session it started — unless it checks ``state``.
+        """
+        self._stolen_code = code
+        victim_client = self.env.client
+        seq = self.recorder.emit(
+            actor="attacker",
+            phase="redirect",
+            summary="Attacker crafts a CSRF callback carrying its own code.",
+            detail=(
+                "The attacker logged in under its own account and obtained a valid "
+                "authorization code for the victim's client. It now sends the victim a "
+                "crafted link to the client's callback carrying that code (but not the "
+                "victim client's 'state'). If the victim follows it, the client will "
+                "redeem a code bound to the ATTACKER's account — binding the victim's "
+                "session to the attacker unless a 'state' check rejects the mismatch."
+            ),
+            outcome="ok",
+            refs=[obtained_from_seq],
+            http=HttpExchange(
+                request=HttpMessage(
+                    method="GET",
+                    url=f"{victim_client.redirect_uri}?code={code}",
+                    body={"code": code},
+                ),
+                response=HttpMessage(status=302, body={"delivered_to": "victim_browser"}),
+                highlight=["request.body.code"],
+                source_actor="attacker",
+                target_actor="client",
+            ),
+            knowledge_delta={
+                # The attacker holds a code for its OWN account and, crucially, does
+                # not hold the victim client's per-session 'state'.
+                "attacker": KnowledgeState(
+                    has=["authorization_code(attacker_account)"],
+                    lacks=["victim_session_state"],
+                ),
+            },
+            spec_refs=[SpecRef(rfc="RFC 6749", section="§10.12")],
+        )
+        return {"seq": seq, "code": code}
+
+    def note_cross_session_binding(self, *, at_seq: int) -> Dict[str, Any]:
+        """Record the achieved login-CSRF binding (state was not enforced)."""
+        seq = self.recorder.emit(
+            actor="attacker",
+            phase="resource",
+            summary="Cross-session binding: the victim's client is bound to the attacker.",
+            detail=(
+                "With no 'state' check the victim's client accepted the injected code "
+                "and redeemed it. The token — and the profile it unlocks — belong to "
+                "the ATTACKER's account, so the victim is now operating inside the "
+                "attacker's account (anything the victim does lands there). This is the "
+                "login-CSRF outcome that binding the response to the session with "
+                "'state' prevents."
+            ),
+            outcome="attack_success",
+            refs=[at_seq],
+            knowledge_delta={
+                "attacker": KnowledgeState(has=["victim_client_bound_to_attacker"]),
+            },
+            spec_refs=[SpecRef(rfc="RFC 6749", section="§10.12")],
+        )
+        return {"seq": seq}
+
     def access_resource(self, *, resource_server: ResourceServer) -> Dict[str, Any]:
         """Use the stolen-flow access token to read the victim's protected data."""
         assert self._access_token is not None, "access_resource without a token"
