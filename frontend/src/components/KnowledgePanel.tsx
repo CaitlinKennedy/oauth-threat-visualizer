@@ -4,11 +4,14 @@ import { GlossaryTooltip } from "./GlossaryTooltip";
 interface Props {
   events: StepEvent[];
   currentIndex: number;
+  stepNo: number;
 }
 
 // The actor-knowledge ledger: fold every knowledge_delta up to and including the
-// current step so the panel shows what each actor holds *right now*.
-function ledgerUpTo(events: StepEvent[], index: number) {
+// current step so the grid shows what each actor holds *right now*. Kept as an
+// exported helper because the "Who holds what" tab of the step card is a pure
+// projection of the same trace.
+export function ledgerUpTo(events: StepEvent[], index: number) {
   const ledger: Record<string, { has: Set<string>; lacks: Set<string> }> = {};
   for (let i = 0; i <= index && i < events.length; i++) {
     const delta = events[i].knowledge_delta || {};
@@ -29,21 +32,35 @@ function ledgerUpTo(events: StepEvent[], index: number) {
 
 const ORDER: Actor[] = ["client", "auth_server", "resource_server", "attacker"];
 
-export function KnowledgePanel({ events, currentIndex }: Props) {
+// The four-cell "Who holds what" grid — one cell per actor of has/lacks chips.
+// Keys in knowledge_delta may be instance-qualified ("auth_server#rogue"); we
+// merge on the bare actor part so a single-instance run reads cleanly.
+export function KnowledgeGrid({ events, currentIndex, stepNo }: Props) {
   const ledger = ledgerUpTo(events, currentIndex);
+  const forActor = (actor: Actor) => {
+    const merged = { has: new Set<string>(), lacks: new Set<string>() };
+    for (const [key, slot] of Object.entries(ledger)) {
+      if (key.split("#")[0] !== actor) continue;
+      slot.has.forEach((i) => merged.has.add(i));
+      slot.lacks.forEach((i) => {
+        if (!merged.has.has(i)) merged.lacks.add(i);
+      });
+    }
+    return merged;
+  };
+
   return (
-    <div className="knowledge">
-      <h2 className="panel-title">Actor knowledge</h2>
-      <p className="panel-hint">What each actor holds at this step.</p>
-      <ul className="knowledge-list">
+    <div className="know">
+      <p className="know-hint">What each party holds after step {stepNo}.</p>
+      <div className="know-grid">
         {ORDER.map((actor) => {
-          const slot = ledger[actor];
-          const has = slot ? [...slot.has] : [];
-          const lacks = slot ? [...slot.lacks] : [];
+          const slot = forActor(actor);
+          const has = [...slot.has];
+          const lacks = [...slot.lacks];
           return (
-            <li key={actor} className="knowledge-actor">
-              <span className="knowledge-name">{ACTOR_LABELS[actor]}</span>
-              <span className="knowledge-items">
+            <div className="know-cell" key={actor}>
+              <span className="know-name">{ACTOR_LABELS[actor]}</span>
+              <span className="know-chips">
                 {has.length === 0 && lacks.length === 0 && (
                   <span className="chip chip-empty">nothing yet</span>
                 )}
@@ -60,10 +77,10 @@ export function KnowledgePanel({ events, currentIndex }: Props) {
                   </span>
                 ))}
               </span>
-            </li>
+            </div>
           );
         })}
-      </ul>
+      </div>
     </div>
   );
 }

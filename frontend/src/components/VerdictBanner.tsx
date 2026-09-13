@@ -1,40 +1,105 @@
-import type { Verdict } from "../types/trace";
+import type { Trace } from "../types/trace";
 
 interface Props {
-  verdict: Verdict;
+  trace: Trace;
+  open: boolean;
+  onToggle: () => void;
 }
 
-// Pass/fail is never conveyed by color alone: each badge carries an icon glyph
-// and a text label as well as a color class.
-export function VerdictBanner({ verdict }: Props) {
+// The verdict strip. Pass/fail is never conveyed by color alone: each badge
+// carries a ✓/✗ glyph and a text label. The "Why?" disclosure explains the
+// outcome from fields on the trace, so it stays a pure function of the run.
+export function VerdictBanner({ trace, open, onToggle }: Props) {
+  const v = trace.verdict;
+  const attackerWon = v.attacker_got_token;
+  const anyAttack = Object.values(trace.config?.attacks ?? {}).some(
+    (a) => a?.active,
+  );
+
+  const responsible = !anyAttack
+    ? "None needed — no attack was attempted in this run."
+    : v.responsible_capability
+      ? v.responsible_capability
+      : attackerWon
+        ? "None — the attack succeeded."
+        : "—";
+
+  const blockedAt =
+    v.blocked_at_seq != null
+      ? `Step ${v.blocked_at_seq}`
+      : !anyAttack
+        ? `Nothing blocked; all ${trace.events.length} steps succeeded.`
+        : attackerWon
+          ? "Nothing blocked the attacker."
+          : "—";
+
   return (
-    <div
-      className="verdict"
+    <section
+      className={`verdict ${attackerWon ? "verdict-lost" : ""}`}
       role="status"
       aria-live="polite"
-      aria-label={`Verdict: ${verdict.one_line}`}
+      aria-label={`Verdict: ${v.one_line}`}
     >
-      <div className="verdict-badges">
-        <Badge
-          ok={verdict.user_got_token && verdict.user_accessed_resource}
-          okText="User obtained a token & reached the API"
-          failText="User did not complete the flow"
-        />
-        <Badge
-          ok={!verdict.attacker_got_token}
-          okText="Attacker obtained no token"
-          failText="Attacker obtained a token"
-        />
-      </div>
-      <p className="verdict-line">{verdict.one_line}</p>
-      {verdict.responsible_capability && (
-        <p className="verdict-cap">
-          Responsible mitigation: <strong>{verdict.responsible_capability}</strong>
-          {verdict.blocked_at_seq != null && <> (blocked at step {verdict.blocked_at_seq})</>}
-        </p>
+      <Badge
+        ok={!attackerWon}
+        okText="Attacker obtained no token"
+        failText="Attacker obtained a token"
+      />
+      <Badge
+        ok={v.user_got_token && v.user_accessed_resource}
+        okText="User reached the API"
+        failText="User did not complete the flow"
+      />
+      <p className="verdict-line">{v.one_line}</p>
+      <button
+        className="verdict-why"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        {open ? "Hide why" : "Why?"}
+      </button>
+
+      {open && (
+        <div className="verdict-detail">
+          <div>
+            <p className="verdict-field-label">Responsible mitigation</p>
+            <p className="verdict-field-value">{responsible}</p>
+          </div>
+          <div>
+            <p className="verdict-field-label">Blocked at</p>
+            <p className="verdict-field-value">{blockedAt}</p>
+          </div>
+          <div>
+            <p className="verdict-field-label">The binding that held</p>
+            <p className="verdict-field-value">{bindingText(trace)}</p>
+          </div>
+        </div>
       )}
-    </div>
+    </section>
   );
+}
+
+// Derived entirely from the trace's checks: the FAIL that stopped an attacker,
+// or the PASS bindings that carried a clean run.
+function bindingText(trace: Trace): string {
+  const v = trace.verdict;
+  const withChecks = trace.events.filter((e) => e.check);
+  if (v.attacker_got_token) {
+    return "No binding stopped the attacker: the captured code or token was accepted with nothing per-request left to verify.";
+  }
+  const failed = withChecks.find((e) => e.check!.result === "FAIL");
+  if (failed) {
+    return `${failed.check!.name} failed at step ${failed.seq}: ${failed.check!.rule}.`;
+  }
+  const passed = withChecks.filter((e) => e.check!.result === "PASS");
+  if (passed.length) {
+    return (
+      "Bindings held — " +
+      passed.map((e) => `${e.check!.name} (step ${e.seq})`).join("; ") +
+      "."
+    );
+  }
+  return "The exchange completed with every protocol check satisfied.";
 }
 
 function Badge({
@@ -46,7 +111,6 @@ function Badge({
   okText: string;
   failText: string;
 }) {
-  // Callers pass `ok` already meaning the *good* outcome for that badge.
   return (
     <span className={`badge ${ok ? "badge-good" : "badge-bad"}`}>
       <span className="badge-icon" aria-hidden="true">

@@ -15,24 +15,32 @@ const W = 170;
 const H = 74;
 
 function isActor(v: string | null | undefined): v is Actor {
-  return v === "client" || v === "auth_server" || v === "resource_server" || v === "attacker";
+  return (
+    v === "client" ||
+    v === "auth_server" ||
+    v === "resource_server" ||
+    v === "attacker"
+  );
 }
 
 function center(a: Actor) {
   return { x: NODES[a].x + W / 2, y: NODES[a].y + H / 2 };
 }
 
+// The actor diagram: four parties, with the active message drawn between them.
+// It is a pure function of the trace — the message edge comes from the explicit
+// source/target actors the emitter records, never from string-matching hostnames.
 export function Diagram({ event }: Props) {
   const activeActor = event?.actor ?? null;
   const onBehalf = event?.on_behalf_of ?? null;
-  // The message edge is a pure function of the trace: the emitter carries the
-  // explicit source/target actor, so the UI never string-matches hostnames.
   const src = event?.http?.source_actor ?? null;
   const tgt = event?.http?.target_actor ?? null;
   const source = isActor(src) ? src : null;
   const target = isActor(tgt) ? tgt : null;
   const drawEdge = source && target && source !== target;
 
+  // Amber belongs to the attacker: the whole exchange reads as adversarial when
+  // the attacker is the active actor or is being acted for.
   const attackerInvolved = onBehalf === "attacker" || activeActor === "attacker";
 
   return (
@@ -46,25 +54,62 @@ export function Diagram({ event }: Props) {
           : "OAuth actor diagram"
       }
     >
+      <defs>
+        <marker
+          id="arrow-accent"
+          viewBox="0 0 10 10"
+          refX="8"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow" />
+        </marker>
+        <marker
+          id="arrow-attacker"
+          viewBox="0 0 10 10"
+          refX="8"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow edge-arrow-att" />
+        </marker>
+      </defs>
+
       {drawEdge && source && target && (
-        <Edge from={center(source)} to={center(target)} />
+        <line
+          x1={center(source).x}
+          y1={center(source).y}
+          x2={center(target).x}
+          y2={center(target).y}
+          className={`edge-line ${attackerInvolved ? "edge-line-att" : ""}`}
+          markerEnd={`url(#${attackerInvolved ? "arrow-attacker" : "arrow-accent"})`}
+        />
       )}
 
       {(Object.keys(NODES) as Actor[]).map((actor) => {
         const n = NODES[actor];
         const isActive = actor === activeActor;
-        const isIdle = actor === "attacker" && !attackerInvolved;
+        const isAttacker = actor === "attacker";
+        const isIdle = isAttacker && !attackerInvolved;
+        const boxClass =
+          isAttacker && attackerInvolved
+            ? "nb-attacker"
+            : isActive
+              ? "nb-active"
+              : "nb-idle";
         return (
-          <g key={actor} className={`node ${isActive ? "node-active" : ""}`}>
+          <g key={actor}>
             <rect
               x={n.x}
               y={n.y}
               width={W}
               height={H}
               rx={10}
-              className={`node-box ${isActive ? "box-active" : ""} ${
-                isIdle ? "box-idle" : ""
-              }`}
+              className={`node-box ${boxClass} ${isIdle ? "nb-dashed" : ""}`}
             />
             <text x={n.x + 12} y={n.y + 28} className="node-title">
               {ACTOR_LABELS[actor]}
@@ -77,39 +122,5 @@ export function Diagram({ event }: Props) {
         );
       })}
     </svg>
-  );
-}
-
-function Edge({
-  from,
-  to,
-}: {
-  from: { x: number; y: number };
-  to: { x: number; y: number };
-}) {
-  return (
-    <g className="edge">
-      <defs>
-        <marker
-          id="arrow"
-          viewBox="0 0 10 10"
-          refX="8"
-          refY="5"
-          markerWidth="7"
-          markerHeight="7"
-          orient="auto-start-reverse"
-        >
-          <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow" />
-        </marker>
-      </defs>
-      <line
-        x1={from.x}
-        y1={from.y}
-        x2={to.x}
-        y2={to.y}
-        className="edge-line"
-        markerEnd="url(#arrow)"
-      />
-    </g>
   );
 }

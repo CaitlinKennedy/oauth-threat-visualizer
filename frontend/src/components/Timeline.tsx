@@ -9,47 +9,55 @@ interface Props {
   divergenceSeq?: number | null;
 }
 
-// A scrubbable list of steps. Each step is a button, so the whole timeline is
-// keyboard-navigable and any step can be jumped to directly.
+// The step rail (right column): every step as a button, so the whole rail is
+// keyboard-navigable and any step can be jumped to directly. Checks surface a
+// ✓/✗ line (glyph + text, never color alone) where the protocol decides.
 export function Timeline({ events, currentIndex, onSelect, divergenceSeq }: Props) {
   return (
-    <ol className="timeline" aria-label="Flow steps">
-      {events.map((e, i) => {
-        const current = i === currentIndex;
-        const diverges = divergenceSeq != null && e.seq === divergenceSeq;
-        return (
-          <li key={e.seq} className="timeline-item">
-            {diverges && (
-              <span className="timeline-diverge" aria-hidden="true">
-                ⎇ runs diverge here
-              </span>
-            )}
-            <button
-              className={`timeline-btn ${current ? "timeline-current" : ""} ${
-                i < currentIndex ? "timeline-past" : ""
-              } ${diverges ? "timeline-diverge-step" : ""}`}
-              aria-current={current ? "step" : undefined}
-              aria-label={diverges ? `Step ${e.seq} (runs diverge here): ${e.summary}` : undefined}
-              onClick={() => onSelect(i)}
-            >
-              <span className="timeline-seq">{e.seq}</span>
-              <span className="timeline-meta">
-                <span className="timeline-actor">{ACTOR_LABELS[e.actor]}</span>
-                <span className="timeline-phase">{e.phase}</span>
-              </span>
-              <span className="timeline-summary">{e.summary}</span>
-              {e.check && (
-                <span
-                  className={`timeline-check tc-${e.check.result.toLowerCase()}`}
-                  title={`${e.check.name}: ${e.check.result}`}
-                >
-                  {e.check.result === "PASS" ? "✓ check" : "✗ check"}
+    <div className="card rail-card">
+      <div className="rail-head">Steps</div>
+      <ol className="rail" aria-label="Flow steps">
+        {events.map((e, i) => {
+          const current = i === currentIndex;
+          const diverges = divergenceSeq != null && e.seq === divergenceSeq;
+          return (
+            <li key={e.seq}>
+              {diverges && (
+                <span className="rail-diverge" aria-hidden="true">
+                  ⎇ runs diverge here
                 </span>
               )}
-            </button>
-          </li>
-        );
-      })}
-    </ol>
+              <button
+                className={`rail-btn ${current ? "rail-current" : ""} ${
+                  i < currentIndex ? "rail-past" : ""
+                } ${diverges ? "rail-diverge-step" : ""}`}
+                aria-current={current ? "step" : undefined}
+                aria-label={
+                  diverges
+                    ? `Step ${e.seq} (runs diverge here): ${e.summary}`
+                    : undefined
+                }
+                onClick={() => onSelect(i)}
+              >
+                <span className="rail-seq">{e.seq}</span>
+                <span className="rail-meta">
+                  <span className="rail-actor">{ACTOR_LABELS[e.actor]}</span>
+                  <span className="rail-phase">{e.phase}</span>
+                </span>
+                <span className="rail-summary">{e.summary}</span>
+                {e.check && (
+                  <span
+                    className={`rail-check tc-${e.check.result.toLowerCase()}`}
+                    title={`${e.check.name}: ${e.check.result}`}
+                  >
+                    {e.check.result === "PASS" ? "✓ check" : "✗ check"}
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
