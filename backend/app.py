@@ -23,13 +23,14 @@ from typing import Any, Dict, Optional
 from flask import Flask, jsonify, request, send_from_directory
 
 from otv import registry, scenarios
-from otv.contract import trace_from_dict, validate
+from otv.contract import ContractError, ScenarioConfig, trace_from_dict, validate
 from otv.engine.conductor import UnsupportedScenario, run
 
 FIXTURES_DIR = Path(__file__).parent / "otv" / "fixtures"
 STATIC_DIR = Path(__file__).parent / "static"
 
-# The fixture used as the fallback for the happy-path preset / an empty config.
+# The fixture used as the fallback for the happy-path config only (never for a
+# scenario the user did not request — see the /api/run handler).
 DEFAULT_FIXTURE_ID = "happy_path_auth_code"
 
 
@@ -40,6 +41,20 @@ def _load_fixture(fixture_id: str) -> Optional[Dict[str, Any]]:
         return None
     with path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def _is_happy_path_config(config: ScenarioConfig) -> bool:
+    """The clean authorization-code flow with no active capability or attack.
+
+    This is the only config the happy-path fixture legitimately stands in for, so
+    a live crash on *this* config may fall back to the fixture while any other
+    config gets an explicit error instead of a fake success.
+    """
+    return (
+        config.grant == "authorization_code"
+        and not config.active_capabilities()
+        and not config.active_attacks()
+    )
 
 
 def create_app() -> Flask:
@@ -70,19 +85,50 @@ def create_app() -> Flask:
 
     @app.post("/api/run")
     def post_run():
-        body = request.get_json(silent=True) or {}
+        # Parse and validate the request body *inside* error handling so malformed
+        # input yields a JSON 400, never an HTML 500 (ADD-2).
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify({"error": "bad_request", "message": "body must be a JSON object"}), 400
         raw_config = body.get("config", body)  # accept {config:{...}} or a bare config
-        config = scenarios.config_from_dict(raw_config)
+        if not isinstance(raw_config, dict):
+            return jsonify({"error": "bad_request", "message": "config must be an object"}), 400
+        try:
+            config = scenarios.config_from_dict(raw_config)
+        except (ContractError, ValueError, TypeError) as exc:
+            return jsonify({"error": "bad_request", "message": str(exc)}), 400
+
+        is_happy = _is_happy_path_config(config)
         try:
             trace = run(config)
             return jsonify(trace.to_dict())
-        except UnsupportedScenario:
-            # Outside the implemented phase: serve the committed golden trace so
-            # the UI still demos a complete, correct flow (same contract shape).
-            return _fixture_response(DEFAULT_FIXTURE_ID, source="fallback")
-        except Exception:  # a live run failed unexpectedly — degrade gracefully
-            app.logger.exception("live run failed; serving fixture fallback")
-            return _fixture_response(DEFAULT_FIXTURE_ID, source="fallback")
+        except UnsupportedScenario as exc:
+            # An expected, well-understood gap: this scenario is not implemented in
+            # this build. Say so explicitly — never a fake happy-path success.
+            return (
+                jsonify(
+                    {
+                        "mode": "unsupported",
+                        "error": "not_available",
+                        "message": str(exc),
+                        "config": raw_config,
+                    }
+                ),
+                501,
+            )
+        except Exception as exc:  # a genuine, unexpected live-run crash
+            app.logger.exception("live run crashed")
+            if is_happy:
+                # The requested scenario *is* the happy path, so the committed
+                # golden trace is a faithful stand-in.
+                return _fixture_response(DEFAULT_FIXTURE_ID, source="fallback")
+            # Otherwise surface the crash distinctly — do not fake success.
+            return (
+                jsonify(
+                    {"mode": "error", "error": "run_failed", "message": str(exc)}
+                ),
+                500,
+            )
 
     def _fixture_response(fixture_id: str, *, source: str):
         data = _load_fixture(fixture_id)
@@ -101,11 +147,19 @@ def create_app() -> Flask:
 
     @app.get("/<path:path>")
     def catch_all(path: str):
-        # Serve a real static asset if it exists; otherwise fall back to the SPA
-        # entry point so client-side routing works.
+        # Unknown API routes must not masquerade as the SPA: return a JSON 404 so a
+        # mistyped endpoint fails loudly instead of returning index.html (ADD-6).
+        if path == "api" or path.startswith("api/"):
+            return jsonify({"error": "not_found", "path": f"/{path}"}), 404
+        # Serve a real static asset if it exists.
         asset = STATIC_DIR / path
         if asset.is_file():
             return _serve_ui(path)
+        # A path that names a file (has an extension) but doesn't exist is a real
+        # 404 — don't hand back index.html for a missing .js/.css/etc.
+        if os.path.splitext(path)[1]:
+            return jsonify({"error": "not_found", "path": f"/{path}"}), 404
+        # Otherwise it's a client-side route: serve the SPA entry point.
         return _serve_ui("index.html")
 
     def _serve_ui(path: str):
@@ -130,4 +184,10 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), debug=True)
+    # Bind to loopback by default and keep the Werkzeug debugger OFF unless
+    # explicitly opted in via FLASK_DEBUG — the interactive debugger is
+    # remote-code-execution-adjacent if exposed. Production uses gunicorn (see the
+    # Dockerfile), which does not run this block.
+    debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes", "on")
+    host = os.environ.get("HOST", "127.0.0.1")
+    app.run(host=host, port=int(os.environ.get("PORT", "8000")), debug=debug)
