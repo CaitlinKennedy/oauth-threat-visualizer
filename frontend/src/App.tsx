@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fallbackTrace, fetchCatalog, fetchPresets, runScenario } from "./api";
-import type { Catalog, Preset, Trace } from "./types/trace";
+import {
+  ApiError,
+  fallbackTrace,
+  fetchCatalog,
+  fetchPresets,
+  runCompare,
+  runScenario,
+} from "./api";
+import type { Catalog, CompareResponse, Preset, Trace } from "./types/trace";
 import { Diagram } from "./components/Diagram";
 import { Timeline } from "./components/Timeline";
 import { Controls } from "./components/Controls";
@@ -8,6 +15,7 @@ import { DrillDown } from "./components/DrillDown";
 import { VerdictBanner } from "./components/VerdictBanner";
 import { KnowledgePanel } from "./components/KnowledgePanel";
 import { CatalogStrip } from "./components/CatalogStrip";
+import { CompareBar } from "./components/CompareBar";
 
 const AUTOPLAY_MS = 1600;
 
@@ -18,36 +26,63 @@ function prefersReducedMotion(): boolean {
   );
 }
 
+type Side = "baseline" | "variant";
+
 export default function App() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [trace, setTrace] = useState<Trace | null>(null);
+  const [compare, setCompare] = useState<CompareResponse | null>(null);
+  const [side, setSide] = useState<Side>("variant");
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [status, setStatus] = useState<string>("Loading…");
 
-  const events = trace?.events ?? [];
+  // The UI is a pure function of ONE trace: in compare mode that's the selected
+  // side of the diff, otherwise the single run.
+  const shownTrace = compare ? compare[side] : trace;
+  const events = shownTrace?.events ?? [];
   const current = events[index] ?? null;
+  const divergenceSeq = compare?.divergences[0]?.seq ?? null;
 
   const loadPreset = useCallback(async (preset: Preset) => {
     setPlaying(false);
+    setActivePresetId(preset.id);
+    setIndex(0);
     setStatus(`Running: ${preset.name}…`);
     try {
-      const t = await runScenario(preset.config);
-      setTrace(t);
-      setIndex(0);
-      setStatus(t._source === "fallback" ? "Loaded (fixture fallback)." : "Live run loaded.");
-    } catch {
-      // Backend unreachable: use the bundled golden trace so the app still demos.
+      if (preset.mode === "compare" && preset.compare) {
+        const resp = await runCompare(preset.compare.baseline, preset.compare.variant);
+        setCompare(resp);
+        setTrace(null);
+        setSide("variant");
+        setStatus("Compare loaded — flip PKCE to watch the runs diverge.");
+      } else {
+        const t = await runScenario(preset.config);
+        setCompare(null);
+        setTrace(t);
+        setStatus(
+          t._source === "fallback" ? "Loaded (fixture fallback)." : "Live run loaded.",
+        );
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        // The server understood but declined (e.g. a not-yet-built preset → 501).
+        // Keep whatever is on screen and surface the reason, rather than showing a
+        // misleading fallback trace.
+        setStatus(`${preset.name} is not available: ${err.message}`);
+        return;
+      }
+      // Network/parse failure: fall back to the bundled golden trace so the app
+      // still demos something correct.
+      setCompare(null);
       setTrace(fallbackTrace());
-      setIndex(0);
       setStatus("Backend unreachable — showing bundled demo trace.");
     }
   }, []);
 
   // Boot in demo mode: load presets + catalog and immediately run the default.
-  // The catalog loads independently (allSettled) so a catalog-only failure never
-  // drops the presets or the live run — the strip just degrades on its own.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -57,9 +92,7 @@ export default function App() {
       ]);
       if (cancelled) return;
 
-      if (catalogRes.status === "fulfilled") {
-        setCatalog(catalogRes.value);
-      }
+      if (catalogRes.status === "fulfilled") setCatalog(catalogRes.value);
 
       if (presetsRes.status === "fulfilled") {
         const p = presetsRes.value;
@@ -72,8 +105,6 @@ export default function App() {
           setStatus("No scenarios returned — showing bundled demo trace.");
         }
       } else {
-        // Presets (and thus the live run) are unavailable: fall back to the
-        // bundled golden trace so the app still demos.
         setTrace(fallbackTrace());
         setStatus("Backend unreachable — showing bundled demo trace.");
       }
@@ -92,8 +123,21 @@ export default function App() {
     setIndex(0);
   }, []);
 
-  // One-click "video" auto-play. Honors prefers-reduced-motion by stepping
-  // without relying on animated transitions (the CSS also disables them).
+  // Flip which run is shown, keeping the step position (clamped) so the reader
+  // sees the SAME step change outcome — the core of the gesture.
+  const setSideKeepStep = useCallback(
+    (s: Side) => {
+      setPlaying(false);
+      setSide(s);
+      if (compare) {
+        const len = compare[s].events.length;
+        setIndex((i) => Math.min(i, Math.max(0, len - 1)));
+      }
+    },
+    [compare],
+  );
+
+  // One-click "video" auto-play. Honors prefers-reduced-motion.
   const timer = useRef<number | null>(null);
   useEffect(() => {
     if (!playing) return;
@@ -108,7 +152,8 @@ export default function App() {
     };
   }, [playing, index, events.length]);
 
-  // Keyboard stepping: arrows step, space toggles play, Home/End jump.
+  // Keyboard stepping: arrows step, space toggles play, Home/End jump, and in
+  // compare mode "p" flips PKCE.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
@@ -121,8 +166,6 @@ export default function App() {
         e.preventDefault();
         prev();
       } else if (e.key === " ") {
-        // Don't hijack Space when a button/interactive control is focused —
-        // otherwise it would both toggle play and activate the control.
         if (
           tag === "BUTTON" ||
           tag === "A" ||
@@ -138,11 +181,14 @@ export default function App() {
         setIndex(0);
       } else if (e.key === "End") {
         setIndex(events.length - 1);
+      } else if ((e.key === "p" || e.key === "P") && compare) {
+        e.preventDefault();
+        setSideKeepStep(side === "variant" ? "baseline" : "variant");
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [next, prev, events.length]);
+  }, [next, prev, events.length, compare, side, setSideKeepStep]);
 
   const runnablePresets = useMemo(() => presets, [presets]);
 
@@ -160,12 +206,14 @@ export default function App() {
           {runnablePresets.map((p) => (
             <button
               key={p.id}
-              className={`preset-btn ${trace?.config && sameConfig(p, trace) ? "preset-active" : ""}`}
+              className={`preset-btn ${activePresetId === p.id ? "preset-active" : ""}`}
               disabled={!p.available}
               title={p.available ? p.description : `${p.description} (coming soon)`}
               onClick={() => loadPreset(p)}
             >
-              <span className="preset-flow">Flow {p.flow}</span>
+              <span className="preset-flow">
+                {p.mode === "compare" ? "Compare" : `Flow ${p.flow}`}
+              </span>
               <span className="preset-name">{p.name}</span>
               {!p.available && <span className="preset-soon">soon</span>}
             </button>
@@ -173,7 +221,16 @@ export default function App() {
         </div>
       </header>
 
-      {trace && <VerdictBanner verdict={trace.verdict} />}
+      {shownTrace && <VerdictBanner verdict={shownTrace.verdict} />}
+
+      {compare && (
+        <CompareBar
+          compare={compare}
+          side={side}
+          onSetSide={setSideKeepStep}
+          currentSeq={current?.seq ?? null}
+        />
+      )}
 
       {catalog && <CatalogStrip catalog={catalog} />}
 
@@ -204,6 +261,7 @@ export default function App() {
           <Timeline
             events={events}
             currentIndex={index}
+            divergenceSeq={divergenceSeq}
             onSelect={(i) => {
               setPlaying(false);
               setIndex(i);
@@ -216,27 +274,14 @@ export default function App() {
         <span className="status" role="status">
           {status}
         </span>
-        {trace && <span className="corr">run {trace.correlation_id.slice(0, 14)}…</span>}
+        {shownTrace && (
+          <span className="corr">run {shownTrace.correlation_id.slice(0, 14)}…</span>
+        )}
         <span className="hint">
           Keys: ← → step · space play/pause · Home/End jump
+          {compare ? " · p flip PKCE" : ""}
         </span>
       </footer>
     </div>
-  );
-}
-
-function activeIds(m: Record<string, { active: boolean }>): string {
-  return Object.entries(m)
-    .filter(([, s]) => s.active)
-    .map(([id]) => id)
-    .sort()
-    .join(",");
-}
-
-function sameConfig(preset: Preset, trace: Trace): boolean {
-  return (
-    preset.config.grant === trace.config.grant &&
-    activeIds(preset.config.attacks) === activeIds(trace.config.attacks) &&
-    activeIds(preset.config.capabilities) === activeIds(trace.config.capabilities)
   );
 }

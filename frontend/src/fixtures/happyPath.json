@@ -1,5 +1,5 @@
 {
-  "correlation_id": "run_nHX7e3ALRjKWH_SWPKy1j6nNqcXJWUl5l4Q1b-LVkew",
+  "correlation_id": "run_QVluP5YfSiWfW8IdYGUyIDbE4VwKXEQKn-CR9aglBu8",
   "config": {
     "grant": "authorization_code",
     "capabilities": {},
@@ -32,7 +32,7 @@
             "client_id": "demo-web-app",
             "redirect_uri": "https://app.oauthlab.internal/callback",
             "scope": "profile email",
-            "state": "st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg"
+            "state": "st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA"
           }
         },
         "response": {
@@ -89,7 +89,7 @@
             "client_id": "demo-web-app",
             "redirect_uri": "https://app.oauthlab.internal/callback",
             "scope": "profile email",
-            "state": "st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg"
+            "state": "st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA"
           }
         },
         "response": {
@@ -205,7 +205,7 @@
       "detail": "The server issues a short-lived, single-use authorization code and redirects the browser to the client's registered redirect URI, echoing the 'state' value unchanged. The code is bound server-side to this client and redirect URI; it is not itself a token.",
       "outcome": "ok",
       "refs": [
-        4
+        2
       ],
       "http": {
         "request": {
@@ -216,11 +216,11 @@
         "response": {
           "status": 302,
           "headers": {
-            "Location": "https://app.oauthlab.internal/callback?code=ac_NKH-8URNTLCWa24Vfh0EcJJ8eDpijUaBrlpnKJeLIyg&state=st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg"
+            "Location": "https://app.oauthlab.internal/callback?code=ac_pvmCSuPMRyiBUCXPGjEooWoVt1bO10vxtQ-oHjM8I3s&state=st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA"
           },
           "body": {
-            "code": "ac_NKH-8URNTLCWa24Vfh0EcJJ8eDpijUaBrlpnKJeLIyg",
-            "state": "st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg"
+            "code": "ac_pvmCSuPMRyiBUCXPGjEooWoVt1bO10vxtQ-oHjM8I3s",
+            "state": "st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA"
           }
         },
         "highlight": [
@@ -259,7 +259,7 @@
       "http": {
         "request": {
           "method": "GET",
-          "url": "https://app.oauthlab.internal/callback?code=ac_NKH-8URNTLCWa24Vfh0EcJJ8eDpijUaBrlpnKJeLIyg&state=st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg",
+          "url": "https://app.oauthlab.internal/callback?code=ac_pvmCSuPMRyiBUCXPGjEooWoVt1bO10vxtQ-oHjM8I3s&state=st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA",
           "headers": {}
         },
         "response": {
@@ -283,8 +283,8 @@
           "rfc": "RFC 6749",
           "section": "\u00a710.12"
         },
-        "expected": "st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg",
-        "actual": "st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg"
+        "expected": "st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA",
+        "actual": "st_VctxttsqTT-fOX2i28PrHack_FDvG0USiEUoeFj66JA"
       },
       "knowledge_delta": {
         "client": {
@@ -321,7 +321,7 @@
           },
           "body": {
             "grant_type": "authorization_code",
-            "code": "ac_NKH-8URNTLCWa24Vfh0EcJJ8eDpijUaBrlpnKJeLIyg",
+            "code": "ac_pvmCSuPMRyiBUCXPGjEooWoVt1bO10vxtQ-oHjM8I3s",
             "redirect_uri": "https://app.oauthlab.internal/callback",
             "client_id": "demo-web-app",
             "client_secret": "s3c\u2026(redacted)"
@@ -388,7 +388,8 @@
       "detail": "The server looks up the code, confirms it exists and has not been redeemed before, and marks it used. A code that is missing or already redeemed is rejected \u2014 this is what makes a captured code single-use.",
       "outcome": "ok",
       "refs": [
-        8
+        5,
+        7
       ],
       "check": {
         "name": "authorization_code_single_use",
@@ -418,7 +419,8 @@
       "detail": "The server confirms the code was issued to this client and for this redirect URI. A code captured by a different client, or presented with a different redirect URI, is rejected here.",
       "outcome": "ok",
       "refs": [
-        9
+        5,
+        7
       ],
       "check": {
         "name": "authorization_code_binding",
@@ -445,7 +447,7 @@
       "on_behalf_of": "user",
       "phase": "token",
       "summary": "Authorization server issues a signed JWT access token.",
-      "detail": "The code is valid and now spent. The server signs a real RS256 JWT access token with its private key, scoped to the resource server's audience, and returns it to the client. The public key is available at the JWKS endpoint for verification.",
+      "detail": "The code is valid and now spent. The server signs a real RS256 JWT access token with its private key, scoped to the resource server's audience, and returns it to the caller. The public key is available at the JWKS endpoint for verification.",
       "outcome": "ok",
       "refs": [
         10
@@ -462,7 +464,7 @@
             "Content-Type": "application/json"
           },
           "body": {
-            "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJ1c2VyLThmMzFjMiIsImF1ZCI6Imh0dHBzOi8vYXBpLm9hdXRobGFiLmludGVybmFsIiwiY2xpZW50X2lkIjoiZGVtby13ZWItYXBwIiwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwiaWF0IjoxNzg5MzM1MjEzLCJuYmYiOjE3ODkzMzUyMTMsImV4cCI6MTc4OTMzNTUxMywianRpIjoiZGZkYzFiMmYzMjU0NDA1NjliNmIwMDM0NDdlNzkzMzMifQ.ia-M3-qD_JcdKlrdhO3EQK20LTRDDFTCpDg_BhGCPgyPWj73Ydukm_WiHKJxptqqXZbePD2nq5Kl4WK5l98uoKE1eSstI83sf9OpveK4Pl4IsThu1_Z62rYBUbiWI_ettfryXcfJs14PV-xl3Bh9eMw2tPWMnYQMnTOS5_MBKw2o-vDWrUsELDuPtlSI-o3-jCduccuR-JmSdUOo8OpRGcI-9hsemlMi6Xm1aJCEJAYBQY4HGnCW_Y3ccJ_xHT1dsU4dpHjXOyk2KZ24s33zACNKjnl-0wcZBoQ3WaiTB5ssO_htKuf-zdzdRy6DVKMZLOlXt1SZhaVPiRQcAZjHjw",
+            "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJ1c2VyLThmMzFjMiIsImF1ZCI6Imh0dHBzOi8vYXBpLm9hdXRobGFiLmludGVybmFsIiwiY2xpZW50X2lkIjoiZGVtby13ZWItYXBwIiwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwiaWF0IjoxNzg5MzM3MjIxLCJuYmYiOjE3ODkzMzcyMjEsImV4cCI6MTc4OTMzNzUyMSwianRpIjoiYmQ1MzUxN2U5NGNlNGJmN2E1MDM3YTc1NTQxMGQ5MjgifQ.iRviXzJdJGGje6G2NnszAa9A-SMJEF_aMk0--77k0igRKdiqEFdzieMP5WCa8ECq7hitPc3h5NqOhT2xORHOwbvePU-wI8kVoX7YsrQThmm5UCJBimmw1P2xyWvT875gmvDJmgkmMZ115ubslvBAYYcmiT5g6yKjoTl1gKIS20LsfyKRnADdqti2T3ATerWy2ixFEC6ReJqeH4qKPCArIVY_iqLuxzhb9e__mQjHm-gijEFgHMqfTY5OAoljiRDcaTd7jhmuf9fj60EUeP0HzZWIJ4rqJ5y4cQYLwACLt2C2I2ysvQhaXu71T9LCPOpvGi4DoIdtMTiV8wcwL0i6fA",
             "token_type": "Bearer",
             "expires_in": 300,
             "scope": "profile email"

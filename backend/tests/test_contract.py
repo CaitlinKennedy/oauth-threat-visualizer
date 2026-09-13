@@ -40,11 +40,23 @@ def test_live_trace_dict_roundtrips_and_validates():
     validate(trace_from_dict(d))  # rehydrated form
 
 
-def test_committed_fixture_validates():
-    path = FIXTURES_DIR / "happy_path_auth_code.json"
+@pytest.mark.parametrize(
+    "fixture_id",
+    ["happy_path_auth_code", "injection_no_pkce", "injection_pkce"],
+)
+def test_committed_trace_fixtures_validate(fixture_id):
+    path = FIXTURES_DIR / f"{fixture_id}.json"
     data = json.loads(path.read_text())
     assert data["schema_version"] == SCHEMA_VERSION
     validate(trace_from_dict(data))
+
+
+def test_committed_compare_fixture_validates():
+    from otv.contract import validate_compare_response
+
+    path = FIXTURES_DIR / "injection_pkce_compare.json"
+    data = json.loads(path.read_text())
+    validate_compare_response(data)
 
 
 def test_seqs_are_strictly_increasing_and_refs_point_backward():

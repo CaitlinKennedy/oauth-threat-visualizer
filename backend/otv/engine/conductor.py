@@ -10,15 +10,25 @@ Because callers here bind to the interfaces (:class:`Client`, :class:`AuthServer
 promoting any actor to a standalone REST service later is an impl/transport swap
 with no change to this orchestration, the contract, or the UI.
 
-Phase 0 supports one path: the authorization-code grant with no active attack.
-Anything else raises :class:`UnsupportedScenario`, which the API turns into the
-committed fixture fallback.
+Phase 1 supports the authorization-code grant in two shapes:
+
+- **happy path** — no active attack (optionally with PKCE), the honest flow; and
+- **auth-code injection** — the attacker obtains the victim's code and tries to
+  redeem it. With PKCE off the attacker wins; with PKCE on the identical attack
+  fails at the real ``pkce_verifier_match`` check. The block is produced by the
+  protocol, and the verdict's responsible capability is *derived from the failing
+  check in the emitted trace*, never hard-coded.
+
+Anything outside this phase raises :class:`UnsupportedScenario`, which the API
+turns into an explicit "not available" response (never a fake success).
 """
 
 from __future__ import annotations
 
+from typing import Optional
+
 from .. import crypto, registry
-from ..contract import ScenarioConfig, Trace, Verdict, validate
+from ..contract import ScenarioConfig, StepEvent, Trace, Verdict, validate
 from ..recorder import Recorder
 from ..trace_context import acting
 from ..actors.attacker import Attacker, AttackerImpl
@@ -26,6 +36,13 @@ from ..actors.auth_server import AuthServer, AuthServerImpl
 from ..actors.client import Client, ClientImpl
 from ..actors.environment import Environment
 from ..actors.resource_server import ResourceServer, ResourceServerImpl
+
+# Which capability a given first-class check enforces. Used to attribute a block
+# to the responsible capability *from the emitted trace* (the failing check),
+# rather than hard-coding the verdict.
+_CHECK_TO_CAPABILITY = {
+    "pkce_verifier_match": "pkce",
+}
 
 
 class UnsupportedScenario(Exception):
@@ -38,7 +55,16 @@ def run(config: ScenarioConfig) -> Trace:
         raise UnsupportedScenario(f"grant {config.grant!r} is not implemented yet")
     _reject_unavailable_features(config)
 
-    trace = _run_happy_path(config)
+    if "auth_code_injection" in config.active_attacks():
+        trace = _run_injection(config)
+    elif config.active_attacks():
+        # No other attack is runnable this phase (the guard above would have caught
+        # an unavailable one; this catches an available attack we don't route yet).
+        raise UnsupportedScenario(
+            f"attack {config.active_attacks()!r} is not routed in this phase"
+        )
+    else:
+        trace = _run_happy_path(config)
     validate(trace)  # guard: never hand the UI a trace that breaks the contract
     return trace
 
@@ -64,45 +90,45 @@ def _reject_unavailable_features(config: ScenarioConfig) -> None:
                 )
 
 
+def _pkce_method(config: ScenarioConfig) -> Optional[str]:
+    """The active PKCE method for this run, or ``None`` when PKCE is off."""
+    st = config.capabilities.get("pkce")
+    if st is None or not st.active:
+        return None
+    method = st.params.get("method", "S256")
+    return method if method in crypto.PKCE_METHODS else "S256"
+
+
 def _run_happy_path(config: ScenarioConfig) -> Trace:
     correlation_id = crypto.new_opaque_token(prefix="run_")
     recorder = Recorder(correlation_id, config)
     env = Environment()
+    pkce_method = _pkce_method(config)
 
     # Construct the concrete impls, but bind callers to the interfaces. The
     # resource server is given only role-scoped facts (issuer, audience, its own
     # profile store) — no client secret, no registered-client table (see B2).
-    client: Client = ClientImpl(recorder, env)
+    client: Client = ClientImpl(recorder, env, pkce_method=pkce_method)
     auth_server: AuthServer = AuthServerImpl(recorder, env)
     resource_server: ResourceServer = ResourceServerImpl(
         recorder, env.resource_server_config(), auth_server
     )
-    attacker: Attacker = AttackerImpl(recorder, env)
-    assert not attacker.is_active()  # present but idle this phase
+    attacker: Attacker = AttackerImpl(recorder, env, active=False)
+    assert not attacker.is_active()  # present but idle on the happy path
 
     # Every step in the happy path serves the honest user. Correlation metadata is
     # supplied by the ambient trace context, not threaded across the interfaces.
     with acting(on_behalf_of="user"):
-        # 1) Client begins the authorization-code flow.
         started = client.start_authorization()
-
-        # 2) Authorization server authenticates the user and redirects with a code.
         redirect = auth_server.authorize(started["params"])
-
-        # 3) Client receives the redirect and validates state.
         received = client.receive_redirect(redirect)
-
-        # 4) Client exchanges the code for a token over the back channel (via the
-        #    AS interface).
         exchanged = client.exchange_code(received["code"], auth_server=auth_server)
         token_response = exchanged["token_response"]
-
-        # 5) Client calls the resource server with the access token (via the RS
-        #    interface).
         result = client.access_resource(resource_server=resource_server)
 
     user_got_token = bool(token_response.get("access_token"))
     user_accessed_resource = bool(result["ok"])
+    pkce_note = " PKCE was enabled and its verifier matched." if pkce_method else ""
     verdict = Verdict(
         attacker_got_token=False,
         user_got_token=user_got_token,
@@ -110,9 +136,108 @@ def _run_happy_path(config: ScenarioConfig) -> Trace:
         one_line=(
             "User obtained an access token: YES — the client completed the "
             "authorization-code flow and the resource server honored the token. "
-            "Attacker obtained an access token: NO — no attack was attempted."
+            "Attacker obtained an access token: NO — no attack was attempted." + pkce_note
         ),
         blocked_at_seq=None,
         responsible_capability=None,
     )
     return recorder.seal(verdict)
+
+
+def _run_injection(config: ScenarioConfig) -> Trace:
+    """Auth-code injection against the live endpoints (flow 2 / flow 3).
+
+    The victim starts a real flow and a real code is minted; the attacker captures
+    it and redeems it at the real token endpoint. PKCE — if active — is the only
+    binding the attacker cannot satisfy, so the outcome is decided by the protocol.
+    """
+    correlation_id = crypto.new_opaque_token(prefix="run_")
+    recorder = Recorder(correlation_id, config)
+    env = Environment()
+    pkce_method = _pkce_method(config)
+
+    # The victim uses the PUBLIC client (native/SPA, no secret). With no client
+    # secret in play, PKCE is honestly the only binding that can stop the attacker.
+    client: Client = ClientImpl(
+        recorder, env, pkce_method=pkce_method, registered_client=env.public_client
+    )
+    auth_server: AuthServer = AuthServerImpl(recorder, env)
+    resource_server: ResourceServer = ResourceServerImpl(
+        recorder, env.resource_server_config(), auth_server
+    )
+    attacker = AttackerImpl(recorder, env, active=True)
+    assert attacker.is_active()
+
+    # 1) The victim begins a genuine flow and the AS mints a real code. (The
+    #    victim's client never gets to redeem it — the attacker races/captures it.)
+    with acting(on_behalf_of="user"):
+        started = client.start_authorization()
+        redirect = auth_server.authorize(started["params"])
+
+    # 2) The attacker captures the code and attempts to redeem it as itself.
+    with acting(on_behalf_of="attacker"):
+        attacker.intercept_code(redirect["code"], obtained_from_seq=redirect["issue_seq"])
+        outcome = attacker.redeem_code(auth_server=auth_server)
+        if outcome["got_token"]:
+            # Demonstrate impact: the stolen-flow token reads the victim's profile.
+            attacker.access_resource(resource_server=resource_server)
+
+    attacker_got_token = bool(outcome["got_token"])
+    verdict = _injection_verdict(recorder, attacker_got_token, outcome.get("at_seq"))
+    return recorder.seal(verdict)
+
+
+def _injection_verdict(
+    recorder: Recorder, attacker_got_token: bool, at_seq: Optional[int]
+) -> Verdict:
+    """Build the injection verdict, attributing a block to the failing check.
+
+    The responsible capability is looked up from the actual failing ``check`` at
+    ``at_seq`` in the emitted trace — the block is what the protocol produced, and
+    the label is derived from it rather than assumed.
+    """
+    if attacker_got_token:
+        return Verdict(
+            attacker_got_token=True,
+            user_got_token=False,
+            user_accessed_resource=False,
+            one_line=(
+                "Attacker obtained an access token: YES — auth-code injection "
+                "succeeded. With no PKCE, a captured authorization code is enough to "
+                "redeem a token for the victim. User obtained an access token: NO — "
+                "the victim's code was intercepted before its client could use it."
+            ),
+            blocked_at_seq=None,
+            responsible_capability=None,
+            responsible_capabilities=[],
+        )
+
+    blocking_event = _event_at(recorder, at_seq)
+    responsible: Optional[str] = None
+    if blocking_event is not None and blocking_event.check is not None:
+        responsible = _CHECK_TO_CAPABILITY.get(blocking_event.check.name)
+    responsible_caps = [responsible] if responsible else []
+    cap_phrase = f" — {responsible} verifier mismatch" if responsible == "pkce" else ""
+    return Verdict(
+        attacker_got_token=False,
+        user_got_token=False,
+        user_accessed_resource=False,
+        one_line=(
+            "Attacker obtained an access token: NO" + cap_phrase + ". The identical "
+            "auth-code injection fails: the attacker holds the code but cannot present "
+            "the matching code_verifier, so the token endpoint rejects the exchange. "
+            "User obtained an access token: NO — the victim's code was intercepted."
+        ),
+        blocked_at_seq=at_seq,
+        responsible_capability=responsible,
+        responsible_capabilities=responsible_caps,
+    )
+
+
+def _event_at(recorder: Recorder, seq: Optional[int]) -> Optional[StepEvent]:
+    if seq is None:
+        return None
+    for e in recorder.events:
+        if e.seq == seq:
+            return e
+    return None

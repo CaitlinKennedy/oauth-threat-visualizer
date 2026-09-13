@@ -1,0 +1,533 @@
+{
+  "correlation_id": "run_ui-7SdmQR6GcskmGZkX45cRf2NE4qUjwtuiFXaSGqVY",
+  "config": {
+    "grant": "authorization_code",
+    "capabilities": {
+      "pkce": {
+        "active": true,
+        "params": {
+          "method": "S256"
+        }
+      }
+    },
+    "attacks": {
+      "auth_code_injection": {
+        "active": true,
+        "params": {}
+      }
+    }
+  },
+  "verdict": {
+    "attacker_got_token": false,
+    "user_got_token": false,
+    "user_accessed_resource": false,
+    "one_line": "Attacker obtained an access token: NO \u2014 pkce verifier mismatch. The identical auth-code injection fails: the attacker holds the code but cannot present the matching code_verifier, so the token endpoint rejects the exchange. User obtained an access token: NO \u2014 the victim's code was intercepted.",
+    "blocked_at_seq": 11,
+    "responsible_capability": "pkce",
+    "responsible_capabilities": [
+      "pkce"
+    ]
+  },
+  "events": [
+    {
+      "seq": 1,
+      "actor": "client",
+      "on_behalf_of": "user",
+      "phase": "authorize",
+      "summary": "Client starts the authorization-code flow.",
+      "detail": "The client builds an authorization request and redirects the user's browser to the authorization server. It asks for an authorization 'code' (not a token directly) and includes a 'state' value to tie the eventual response back to this browser session. Because PKCE is enabled, the client also generates a secret code_verifier, keeps it, and sends only its S256 code_challenge \u2014 binding the eventual code to this specific client instance.",
+      "outcome": "ok",
+      "refs": [],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://auth.oauthlab.internal/oauth/authorize",
+          "headers": {},
+          "body": {
+            "response_type": "code",
+            "client_id": "demo-native-app",
+            "redirect_uri": "https://spa.oauthlab.internal/callback",
+            "scope": "profile email",
+            "state": "st_9zkqwhv7Ra-SMcauXoSzxZCKkxxAtETcnyEib_4mW1A",
+            "code_challenge": "SvwmKVfbqYwvfNK8scFn3QUQNxy3BoPmslMwYMsRuBA",
+            "code_challenge_method": "S256"
+          }
+        },
+        "response": {
+          "status": 302,
+          "headers": {},
+          "body": {
+            "redirecting_to": "authorization_server"
+          }
+        },
+        "highlight": [
+          "request.body.response_type",
+          "request.body.state",
+          "request.body.code_challenge"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {
+        "client": {
+          "has": [
+            "state",
+            "redirect_uri",
+            "client_id",
+            "code_verifier",
+            "code_challenge"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.1"
+        }
+      ]
+    },
+    {
+      "seq": 2,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "authorize",
+      "summary": "Authorization server receives the authorization request.",
+      "detail": "The user's browser arrives at the authorization endpoint carrying the client's request. The server checks that the client is registered, that the redirect URI exactly matches one it registered, and that the response type is 'code' for the authorization-code grant. The request also carries a PKCE code_challenge, which the server will bind to the code it issues.",
+      "outcome": "ok",
+      "refs": [
+        1
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://auth.oauthlab.internal/oauth/authorize",
+          "headers": {
+            "Host": "auth.oauthlab.internal"
+          },
+          "body": {
+            "response_type": "code",
+            "client_id": "demo-native-app",
+            "redirect_uri": "https://spa.oauthlab.internal/callback",
+            "scope": "profile email",
+            "state": "st_9zkqwhv7Ra-SMcauXoSzxZCKkxxAtETcnyEib_4mW1A",
+            "code_challenge": "SvwmKVfbqYwvfNK8scFn3QUQNxy3BoPmslMwYMsRuBA",
+            "code_challenge_method": "S256"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "page": "login_and_consent"
+          }
+        },
+        "highlight": [
+          "request.body.client_id",
+          "request.body.redirect_uri",
+          "request.body.response_type",
+          "request.body.code_challenge"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.1"
+        }
+      ]
+    },
+    {
+      "seq": 3,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "authorize",
+      "summary": "Authorization server checks client registration and redirect URI.",
+      "detail": "The server confirms the client_id is registered and that the requested redirect URI exactly matches one registered for that client, so the code can only be delivered to the client's own endpoint.",
+      "outcome": "ok",
+      "refs": [
+        2
+      ],
+      "check": {
+        "name": "redirect_uri_registered",
+        "rule": "client_id is registered AND redirect_uri exactly matches a registered URI",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a73.1.2"
+        },
+        "expected": "registered client + exact redirect_uri match",
+        "actual": "registered client + exact match"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a73.1.2"
+        }
+      ]
+    },
+    {
+      "seq": 4,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "authorize",
+      "summary": "User authenticates and consents to the requested scope.",
+      "detail": "The synthetic user 'avery' logs in and approves the client's request for scope 'profile email'. No real credentials or PII are involved; the account is bundled with the tool.",
+      "outcome": "ok",
+      "refs": [
+        3
+      ],
+      "http": {
+        "request": {
+          "method": "POST",
+          "url": "https://auth.oauthlab.internal/login",
+          "headers": {},
+          "body": {
+            "username": "avery",
+            "consent": "approve",
+            "scope": "profile email"
+          }
+        },
+        "response": {
+          "status": 302,
+          "headers": {},
+          "body": {
+            "consent": "granted"
+          }
+        },
+        "highlight": [
+          "request.body.consent"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {
+        "auth_server": {
+          "has": [
+            "user_session",
+            "consent"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.1"
+        }
+      ]
+    },
+    {
+      "seq": 5,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "redirect",
+      "summary": "Authorization server redirects back with a single-use code.",
+      "detail": "The server issues a short-lived, single-use authorization code and redirects the browser to the client's registered redirect URI, echoing the 'state' value unchanged. The code is bound server-side to this client and redirect URI; it is not itself a token. Because PKCE is in use, the server also records the code_challenge against the code, so only the party that holds the matching code_verifier can redeem it.",
+      "outcome": "ok",
+      "refs": [
+        2
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://spa.oauthlab.internal/callback",
+          "headers": {}
+        },
+        "response": {
+          "status": 302,
+          "headers": {
+            "Location": "https://spa.oauthlab.internal/callback?code=ac_4I33PULTQeCMxably3ldkL93x5UetUuln1JZdxq1JLc&state=st_9zkqwhv7Ra-SMcauXoSzxZCKkxxAtETcnyEib_4mW1A"
+          },
+          "body": {
+            "code": "ac_4I33PULTQeCMxably3ldkL93x5UetUuln1JZdxq1JLc",
+            "state": "st_9zkqwhv7Ra-SMcauXoSzxZCKkxxAtETcnyEib_4mW1A"
+          }
+        },
+        "highlight": [
+          "response.body.code",
+          "response.body.state"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "client"
+      },
+      "knowledge_delta": {
+        "auth_server": {
+          "has": [
+            "authorization_code",
+            "code_challenge"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.2"
+        }
+      ]
+    },
+    {
+      "seq": 6,
+      "actor": "attacker",
+      "on_behalf_of": "attacker",
+      "phase": "redirect",
+      "summary": "Attacker obtains the victim's authorization code.",
+      "detail": "The authorization code is delivered through the front channel \u2014 the redirect in the user's browser \u2014 where it is exposed to leakage (Referer, history, an open redirect, or logs). The attacker captures it. The flow used a public client, so the client_id is not a secret either. What the attacker does NOT have is the per-request code_verifier, which never left the legitimate client instance.",
+      "outcome": "ok",
+      "refs": [
+        5
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://attacker.evil.internal/harvest",
+          "headers": {
+            "X-Observed": "front-channel redirect"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "captured_code": "ac_4I33PULTQeCMxably3ldkL93x5UetUuln1JZdxq1JLc"
+          }
+        },
+        "highlight": [
+          "response.body.captured_code"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "attacker"
+      },
+      "knowledge_delta": {
+        "attacker": {
+          "has": [
+            "authorization_code",
+            "public_client_id"
+          ],
+          "lacks": [
+            "code_verifier"
+          ]
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 9700",
+          "section": "\u00a74.5"
+        },
+        {
+          "rfc": "RFC 7636",
+          "section": "\u00a71"
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "actor": "auth_server",
+      "on_behalf_of": "attacker",
+      "phase": "token",
+      "summary": "Token endpoint receives the code exchange.",
+      "detail": "The caller presents the authorization code over the back channel to exchange it for a token. This is a public client, so there are no client credentials to present; the server will redeem the code subject to the checks that do apply.",
+      "outcome": "ok",
+      "refs": [
+        6
+      ],
+      "http": {
+        "request": {
+          "method": "POST",
+          "url": "https://auth.oauthlab.internal/oauth/token",
+          "headers": {
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          "body": {
+            "grant_type": "authorization_code",
+            "code": "ac_4I33PULTQeCMxably3ldkL93x5UetUuln1JZdxq1JLc",
+            "redirect_uri": "https://spa.oauthlab.internal/callback",
+            "client_id": "demo-native-app",
+            "code_verifier": "bGqGOO87RxSXN-jcRFfgiZ37r-iGu0YDhJlqZbx3pGI"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "processing": true
+          }
+        },
+        "highlight": [
+          "request.body.code",
+          "request.body.code_verifier"
+        ],
+        "source_actor": "attacker",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.3"
+        }
+      ]
+    },
+    {
+      "seq": 8,
+      "actor": "auth_server",
+      "on_behalf_of": "attacker",
+      "phase": "token",
+      "summary": "Public client presents no secret (no client authentication).",
+      "detail": "This is a public client (a native app or SPA): it registered with token_endpoint_auth_method=none and holds no client secret. The token endpoint therefore performs no client authentication \u2014 a public client_id is not a secret, so anyone can present it. Client authentication is not a gate here; whether a captured code can be redeemed comes down to PKCE.",
+      "outcome": "ok",
+      "refs": [
+        7
+      ],
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a72.1"
+        },
+        {
+          "rfc": "RFC 7636",
+          "section": "\u00a71"
+        }
+      ]
+    },
+    {
+      "seq": 9,
+      "actor": "auth_server",
+      "on_behalf_of": "attacker",
+      "phase": "token",
+      "summary": "Authorization code is redeemed exactly once.",
+      "detail": "The server looks up the code, confirms it exists and has not been redeemed before, and marks it used. A code that is missing or already redeemed is rejected \u2014 this is what makes a captured code single-use.",
+      "outcome": "ok",
+      "refs": [
+        5,
+        7
+      ],
+      "check": {
+        "name": "authorization_code_single_use",
+        "rule": "code exists AND not previously redeemed",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.2"
+        },
+        "expected": "unredeemed code",
+        "actual": "unredeemed code"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.2"
+        }
+      ]
+    },
+    {
+      "seq": 10,
+      "actor": "auth_server",
+      "on_behalf_of": "attacker",
+      "phase": "token",
+      "summary": "Authorization code binding is verified (client + redirect URI).",
+      "detail": "The server confirms the code was issued to this client and for this redirect URI. A code captured by a different client, or presented with a different redirect URI, is rejected here.",
+      "outcome": "ok",
+      "refs": [
+        5,
+        7
+      ],
+      "check": {
+        "name": "authorization_code_binding",
+        "rule": "stored.client_id == client_id AND stored.redirect_uri == redirect_uri",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.3"
+        },
+        "expected": "code bound to this client and redirect_uri",
+        "actual": "binding matches"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.3"
+        }
+      ]
+    },
+    {
+      "seq": 11,
+      "actor": "auth_server",
+      "on_behalf_of": "attacker",
+      "phase": "token",
+      "summary": "Token endpoint verifies the PKCE code_verifier.",
+      "detail": "PKCE was used to start this flow, so the code is bound to a code_challenge. The server recomputes the challenge from the presented code_verifier and requires it to equal the stored code_challenge. The authorization code alone is not enough: only the party that generated the verifier \u2014 the client instance that began the flow \u2014 can satisfy this, so a redeemer that merely captured the code cannot.",
+      "outcome": "blocked",
+      "refs": [
+        5,
+        7
+      ],
+      "check": {
+        "name": "pkce_verifier_match",
+        "rule": "S256(code_verifier) == code_challenge",
+        "result": "FAIL",
+        "spec_ref": {
+          "rfc": "RFC 7636",
+          "section": "\u00a74.6"
+        },
+        "expected": "SvwmKVfbqYwvfNK8scFn3QUQNxy3BoPmslMwYMsRuBA",
+        "actual": "jc1AlGAVbGWTMts0lIbe6tflvqZQskqeVin-KHuP-vM"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 7636",
+          "section": "\u00a74.6"
+        }
+      ]
+    },
+    {
+      "seq": 12,
+      "actor": "attacker",
+      "on_behalf_of": "attacker",
+      "phase": "token",
+      "summary": "Attacker's stolen-code redemption is rejected.",
+      "detail": "The token endpoint rejects the exchange. The attacker presented a valid, unused, correctly-bound code for the public client \u2014 every binding except one. It could not present a code_verifier whose S256 hash equals the code_challenge the legitimate client registered, so PKCE stops the injection here. No token is issued to the attacker.",
+      "outcome": "attack_blocked",
+      "refs": [
+        11
+      ],
+      "http": {
+        "request": {
+          "method": "POST",
+          "url": "https://auth.oauthlab.internal/oauth/token",
+          "headers": {}
+        },
+        "response": {
+          "status": 400,
+          "headers": {},
+          "body": {
+            "error": "invalid_grant"
+          }
+        },
+        "highlight": [
+          "response.body.error"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "attacker"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 7636",
+          "section": "\u00a74.6"
+        }
+      ]
+    }
+  ],
+  "schema_version": "1.0",
+  "parent_id": null,
+  "chain_id": null
+}

@@ -5,13 +5,20 @@ verification for access tokens: the authorization server signs a JWT with a
 generated RSA key and publishes the public half as a JWKS; the resource server
 verifies the signature against that JWKS. No security-relevant step is mocked.
 
-PKCE, DPoP proofs, and JWK thumbprints are introduced in later phases; this
-module intentionally stays scoped to what Phase 0 exercises.
+Phase 1 adds **real PKCE** (RFC 7636): a per-request ``code_verifier`` and the
+``code_challenge`` derived from it via S256, plus the token-endpoint verification
+``S256(code_verifier) == code_challenge``. These are genuine (SHA-256 over the
+ASCII verifier, base64url without padding), so a code-injection attack that lacks
+the verifier fails because the maths, not a script, says so.
+
+DPoP proofs and JWK thumbprints are introduced in later phases; this module
+intentionally stays scoped to what Phases 0–1 exercise.
 """
 
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import time
 import uuid
@@ -24,9 +31,55 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 _ALG = "RS256"
 
+# PKCE code-challenge methods this build understands (RFC 7636 §4.2). ``S256`` is
+# the only method OAuth 2.1 permits; ``plain`` is accepted so a later phase can
+# contrast it, but the presets use S256.
+PKCE_METHODS = ("S256", "plain")
+
 
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+# --- PKCE (RFC 7636) -------------------------------------------------------
+
+
+def new_code_verifier() -> str:
+    """Generate a real, high-entropy PKCE ``code_verifier`` (RFC 7636 §4.1).
+
+    43–128 characters from the unreserved set; here the base64url encoding of 32
+    random bytes (a 43-char verifier), exactly as a real client would produce.
+    """
+    return _b64url(uuid.uuid4().bytes + uuid.uuid4().bytes)
+
+
+def code_challenge_for(verifier: str, method: str = "S256") -> str:
+    """Derive the ``code_challenge`` from a ``code_verifier`` (RFC 7636 §4.2).
+
+    ``S256`` is ``BASE64URL(SHA256(ASCII(verifier)))`` with no padding; ``plain``
+    echoes the verifier. Raises :class:`ValueError` for an unknown method.
+    """
+    if method == "S256":
+        return _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
+    if method == "plain":
+        return verifier
+    raise ValueError(f"unsupported code_challenge_method {method!r}")
+
+
+def verify_pkce(verifier: str | None, challenge: str, method: str = "S256") -> bool:
+    """Verify a presented ``code_verifier`` against a stored ``code_challenge``.
+
+    This is the real token-endpoint check (RFC 7636 §4.6):
+    ``code_challenge_for(verifier, method) == challenge``. Returns ``False`` for a
+    missing verifier or an unknown method — never raises — so the caller can emit
+    a truthful PASS/FAIL check event.
+    """
+    if not verifier or not challenge:
+        return False
+    try:
+        return code_challenge_for(verifier, method) == challenge
+    except ValueError:
+        return False
 
 
 @dataclass

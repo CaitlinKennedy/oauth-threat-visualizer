@@ -23,6 +23,13 @@ export const GLOSSARY: Record<string, string> = {
     "The user's explicit approval for the client to access the requested scope.",
   aud: "Audience — the intended recipient of the token. The resource server rejects tokens not addressed to it.",
   iss: "Issuer — who minted the token. The resource server checks it matches the trusted authorization server.",
+  code_verifier:
+    "PKCE: a high-entropy secret the client generates per request and keeps. It is sent only over the back channel at the token exchange, so an attacker who captures the code cannot produce it.",
+  code_challenge:
+    "PKCE: the S256 hash of the code_verifier, sent on the authorization request. The token endpoint later requires a verifier that hashes to this, binding the code to the client instance that started the flow.",
+  pkce: "Proof Key for Code Exchange (RFC 7636): binds an authorization code to a per-request verifier, defeating code interception/injection. Mandatory in OAuth 2.1.",
+  public_client_id:
+    "The client_id of a public client (a native app or SPA with no secret). It is not confidential, so possessing it grants no authority — which is why PKCE, not client authentication, is what stops a stolen code here.",
 };
 
 export function hasGlossary(term: string): boolean {

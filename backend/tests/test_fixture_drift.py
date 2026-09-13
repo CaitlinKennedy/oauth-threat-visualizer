@@ -1,32 +1,41 @@
 """Fixture-drift guard.
 
-The committed golden trace (``otv/fixtures/happy_path_auth_code.json``, mirrored
-byte-for-byte in ``frontend/src/fixtures/happyPath.json``) must stay structurally
-identical to a fresh live happy-path run. Random values (codes, tokens,
-correlation id, signatures) differ every run, so this compares *structure* —
-seq/actor/phase/outcome/summary, each step's check, the highlight paths, and the
+Every committed golden trace (in ``otv/fixtures/``, each mirrored byte-for-byte
+in ``frontend/src/fixtures/``) must stay structurally identical to a fresh live
+run of its scenario. Random values (codes, tokens, correlation id, signatures)
+differ every run, so this compares *structure* — seq/actor/phase/outcome/summary,
+the causal ``refs`` graph, each step's check, the highlight paths, and the
 diagram source/target — not those values.
 
-If this fails after an intentional emitter change, regenerate the fixtures with
-``python -m scripts.regen``.
+The fixture set is imported from ``scripts.regen`` so this guard and the
+regenerator never drift apart. If this fails after an intentional emitter change,
+regenerate the fixtures with ``python -m scripts.regen``.
 """
 
 import json
 from pathlib import Path
 
-from otv.contract import ScenarioConfig
+import pytest
+
+from otv.engine.compare import run_compare
 from otv.engine.conductor import run
+from scripts.regen import (
+    COMPARE_BASELINE,
+    COMPARE_FIXTURE,
+    COMPARE_VARIANT,
+    TRACE_FIXTURES,
+)
 
 BACKEND = Path(__file__).resolve().parent.parent
 REPO = BACKEND.parent
-BACKEND_FIXTURE = BACKEND / "otv" / "fixtures" / "happy_path_auth_code.json"
-FRONTEND_FIXTURE = REPO / "frontend" / "src" / "fixtures" / "happyPath.json"
+BACKEND_FIXTURES = BACKEND / "otv" / "fixtures"
+FRONTEND_FIXTURES = REPO / "frontend" / "src" / "fixtures"
 
 
-def _skeleton(trace: dict) -> list:
-    """The structural fingerprint of a trace, free of run-specific random values."""
+def _skeleton(events: list) -> list:
+    """The structural fingerprint of an event list, free of random values."""
     skel = []
-    for e in trace["events"]:
+    for e in events:
         http = e.get("http") or {}
         check = e.get("check") or {}
         skel.append(
@@ -38,6 +47,9 @@ def _skeleton(trace: dict) -> list:
                 "outcome": e["outcome"],
                 "summary": e["summary"],
                 "on_behalf_of": e["on_behalf_of"],
+                # The causal graph is load-bearing (the UI teaches from it), so the
+                # exact refs are part of the structural fingerprint, not incidental.
+                "refs": e.get("refs"),
                 "check": {"name": check.get("name"), "result": check.get("result")}
                 if check
                 else None,
@@ -49,16 +61,43 @@ def _skeleton(trace: dict) -> list:
     return skel
 
 
-def test_live_run_matches_committed_fixture_structure():
-    live = run(ScenarioConfig(grant="authorization_code")).to_dict()
-    committed = json.loads(BACKEND_FIXTURE.read_text())
-    assert _skeleton(live) == _skeleton(committed), (
-        "live happy-path structure diverged from the committed fixture — "
+@pytest.mark.parametrize(
+    "backend_id,frontend_name,config",
+    TRACE_FIXTURES,
+    ids=[f[0] for f in TRACE_FIXTURES],
+)
+def test_live_run_matches_committed_trace_fixture(backend_id, frontend_name, config):
+    live = run(config).to_dict()
+    committed = json.loads((BACKEND_FIXTURES / f"{backend_id}.json").read_text())
+    assert _skeleton(live["events"]) == _skeleton(committed["events"]), (
+        f"{backend_id}: live structure diverged from the committed fixture — "
         "run `python -m scripts.regen`"
     )
 
 
-def test_backend_and_frontend_fixtures_are_byte_identical():
-    assert json.loads(BACKEND_FIXTURE.read_text()) == json.loads(
-        FRONTEND_FIXTURE.read_text()
-    ), "backend and frontend fixtures diverged — run `python -m scripts.regen`"
+@pytest.mark.parametrize(
+    "backend_id,frontend_name",
+    [(b, f) for b, f, _ in TRACE_FIXTURES] + [COMPARE_FIXTURE],
+    ids=[f[0] for f in TRACE_FIXTURES] + [COMPARE_FIXTURE[0]],
+)
+def test_backend_and_frontend_fixtures_are_byte_identical(backend_id, frontend_name):
+    backend = json.loads((BACKEND_FIXTURES / f"{backend_id}.json").read_text())
+    frontend = json.loads((FRONTEND_FIXTURES / frontend_name).read_text())
+    assert backend == frontend, (
+        f"{backend_id}: backend and frontend fixtures diverged — "
+        "run `python -m scripts.regen`"
+    )
+
+
+def test_live_compare_matches_committed_compare_fixture():
+    live = run_compare(COMPARE_BASELINE, COMPARE_VARIANT).to_dict()
+    committed = json.loads((BACKEND_FIXTURES / f"{COMPARE_FIXTURE[0]}.json").read_text())
+    assert _skeleton(live["baseline"]["events"]) == _skeleton(
+        committed["baseline"]["events"]
+    )
+    assert _skeleton(live["variant"]["events"]) == _skeleton(
+        committed["variant"]["events"]
+    )
+    assert live["divergences"] == committed["divergences"], (
+        "compare divergences drifted — run `python -m scripts.regen`"
+    )

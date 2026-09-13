@@ -8,6 +8,12 @@ fixes for unknown API paths and missing assets.
 import pytest
 
 from app import create_app
+from otv import scenarios
+
+
+def scenario(preset_id: str) -> dict:
+    """The RunConfig of a named preset, so API tests exercise the real presets."""
+    return next(p["config"] for p in scenarios.PRESETS if p["id"] == preset_id)
 
 
 @pytest.fixture()
@@ -36,8 +42,12 @@ def test_catalog_exposes_new_fields_and_phases(client):
     assert by_id["dpop"]["phase"] == 6
     assert by_id["issuer_id"]["phase"] == 7
     assert by_id["pkce"]["applies_to_grants"] == ["authorization_code"]
-    # CURRENT_PHASE = 0 → nothing is available yet.
-    assert all(not i["available"] for i in by_id.values())
+    # CURRENT_PHASE = 1 → pkce + auth-code injection are available; the rest are not.
+    assert by_id["pkce"]["available"] is True
+    assert by_id["auth_code_injection"]["available"] is True
+    assert by_id["state"]["available"] is False
+    assert by_id["dpop"]["available"] is False
+    assert by_id["code_token_replay"]["available"] is False
 
 
 def test_run_happy_path_returns_live_trace(client):
@@ -75,17 +85,83 @@ def test_run_unsupported_config_is_not_a_fake_success(client):
 
 
 def test_run_unsupported_capability_is_flagged(client):
+    # 'state' is Phase 2, so it must still be flagged not-available in Phase 1.
     r = client.post(
         "/api/run",
         json={
             "config": {
                 "grant": "authorization_code",
-                "capabilities": {"pkce": {"active": True}},
+                "capabilities": {"state": {"active": True}},
             }
         },
     )
     assert r.status_code == 501
     assert r.get_json()["error"] == "not_available"
+
+
+def test_run_pkce_happy_path_returns_live_trace(client):
+    # PKCE is available in Phase 1: a happy-path run with PKCE on must succeed.
+    r = client.post(
+        "/api/run",
+        json={
+            "config": {
+                "grant": "authorization_code",
+                "capabilities": {"pkce": {"active": True, "params": {"method": "S256"}}},
+            }
+        },
+    )
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["verdict"]["user_got_token"] is True
+    names = {e["check"]["name"]: e["check"]["result"] for e in body["events"] if e.get("check")}
+    assert names["pkce_verifier_match"] == "PASS"
+
+
+def test_run_injection_no_pkce_attacker_wins(client):
+    r = client.post("/api/run", json={"config": scenario("injection_no_pkce")})
+    assert r.status_code == 200
+    v = r.get_json()["verdict"]
+    assert v["attacker_got_token"] is True
+    # Optional None fields are pruned from the wire, so they are simply absent.
+    assert v.get("blocked_at_seq") is None
+    assert v.get("responsible_capability") is None
+
+
+def test_run_injection_pkce_attacker_blocked(client):
+    r = client.post("/api/run", json={"config": scenario("injection_pkce")})
+    assert r.status_code == 200
+    v = r.get_json()["verdict"]
+    assert v["attacker_got_token"] is False
+    assert v["responsible_capability"] == "pkce"
+    assert isinstance(v["blocked_at_seq"], int)
+
+
+def test_compare_returns_divergence_at_pkce_check(client):
+    r = client.post(
+        "/api/run",
+        json={
+            "compare": {
+                "baseline": scenario("injection_no_pkce"),
+                "variant": scenario("injection_pkce"),
+            }
+        },
+    )
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["mode"] == "compare"
+    assert body["divergences"], "expected a non-empty divergences list"
+    first = body["divergences"][0]
+    assert first["reason"] == "pkce_verifier_match"
+    assert first["capability"] == "pkce"
+    # baseline (PKCE off) lets the attacker win; variant (PKCE on) blocks it.
+    assert body["baseline"]["verdict"]["attacker_got_token"] is True
+    assert body["variant"]["verdict"]["attacker_got_token"] is False
+
+
+def test_compare_malformed_is_400(client):
+    r = client.post("/api/run", json={"compare": {"baseline": {"grant": "authorization_code"}}})
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "bad_request"
 
 
 def test_unknown_api_route_is_json_404(client):

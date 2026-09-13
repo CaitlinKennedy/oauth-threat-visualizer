@@ -9,7 +9,7 @@ exchange happens between the tool's own contained actors (DESIGN.md §10/§11).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 ISSUER = "https://auth.oauthlab.internal"
 AUTHORIZE_URL = f"{ISSUER}/oauth/authorize"
@@ -23,17 +23,36 @@ RESOURCE_URL = f"{RESOURCE_AUDIENCE}/userinfo"
 @dataclass
 class RegisteredClient:
     client_id: str = "demo-web-app"
-    # A confidential client (RFC 6749 §2.1): it authenticates at the token
-    # endpoint with a secret over the back channel (RFC 6749 §2.3.1 / §4.1.3).
-    client_secret: str = "s3cr3t-demo-web-app-01HXZ"
+    # A confidential client (RFC 6749 §2.1) authenticates at the token endpoint
+    # with a secret over the back channel (RFC 6749 §2.3.1 / §4.1.3). A public
+    # client (native app / SPA, RFC 6749 §2.1) has no secret and uses
+    # ``token_endpoint_auth_method="none"`` — for it, client authentication is not
+    # a gate at all, which is exactly why PKCE is the binding that matters.
+    client_secret: Optional[str] = "s3cr3t-demo-web-app-01HXZ"
     redirect_uris: List[str] = field(
         default_factory=lambda: ["https://app.oauthlab.internal/callback"]
     )
     scope: str = "profile email"
+    token_endpoint_auth_method: str = "client_secret_post"
 
     @property
     def redirect_uri(self) -> str:
         return self.redirect_uris[0]
+
+    @property
+    def is_public(self) -> bool:
+        return self.token_endpoint_auth_method == "none"
+
+
+def _public_client() -> "RegisteredClient":
+    """A native/SPA public client: its own id, a registered redirect, no secret."""
+    return RegisteredClient(
+        client_id="demo-native-app",
+        client_secret=None,
+        redirect_uris=["https://spa.oauthlab.internal/callback"],
+        scope="profile email",
+        token_endpoint_auth_method="none",
+    )
 
 
 @dataclass
@@ -74,6 +93,11 @@ class Environment:
     resource_url: str = RESOURCE_URL
     resource_audience: str = RESOURCE_AUDIENCE
     client: RegisteredClient = field(default_factory=RegisteredClient)
+    # A second registered client — a public (native/SPA) client with no secret.
+    # The happy path uses the confidential ``client``; the auth-code-injection
+    # scenario uses this one, so PKCE is honestly the lone gate (there is no
+    # client secret to hand-wave the attacker into holding).
+    public_client: RegisteredClient = field(default_factory=_public_client)
     user: SyntheticUser = field(default_factory=SyntheticUser)
     # Every subject the resource server can serve a profile for. Defaults to the
     # single synthetic user; later phases add an attacker-controlled account here
@@ -83,6 +107,15 @@ class Environment:
     def __post_init__(self) -> None:
         if not self.users:
             self.users = [self.user]
+
+    def registered_clients(self) -> Dict[str, RegisteredClient]:
+        """Every client the authorization server recognizes, keyed by id."""
+        return {self.client.client_id: self.client, self.public_client.client_id: self.public_client}
+
+    def client_by_id(self, client_id: Optional[str]) -> Optional[RegisteredClient]:
+        if client_id is None:
+            return None
+        return self.registered_clients().get(client_id)
 
     def resource_server_config(self) -> ResourceServerConfig:
         """The role-scoped facts handed to the resource server (see B2)."""

@@ -20,9 +20,10 @@ from .contract import SpecRef
 
 # The highest phase whose capabilities/attacks are actually runnable in this
 # build. ``RegistryItem.available`` is derived from it, so shipping a new phase is
-# a one-line bump here rather than edits scattered across items. Phase 0 ships the
-# happy path only; every catalogued toggle arrives in a later phase.
-CURRENT_PHASE = 0
+# a one-line bump here rather than edits scattered across items. Phase 1 makes
+# ``pkce`` and ``auth_code_injection`` runnable; every other toggle stays
+# unavailable until its own phase lands.
+CURRENT_PHASE = 1
 
 
 @dataclass(frozen=True)
