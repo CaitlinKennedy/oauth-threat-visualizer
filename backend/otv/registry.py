@@ -18,6 +18,12 @@ from typing import Any, Dict, List
 
 from .contract import SpecRef
 
+# The highest phase whose capabilities/attacks are actually runnable in this
+# build. ``RegistryItem.available`` is derived from it, so shipping a new phase is
+# a one-line bump here rather than edits scattered across items. Phase 0 ships the
+# happy path only; every catalogued toggle arrives in a later phase.
+CURRENT_PHASE = 0
+
 
 @dataclass(frozen=True)
 class ParamSpec:
@@ -54,11 +60,20 @@ class RegistryItem:
     default_active: bool = False
     params: List[ParamSpec] = field(default_factory=list)
     incompatibilities: List[str] = field(default_factory=list)
+    # Grant ids this item applies to; empty = all grants. Lets the picker hide,
+    # e.g., PKCE for a grant that has no front channel.
+    applies_to_grants: List[str] = field(default_factory=list)
+    # Meta-capability bundling (IMPLEMENTATION.md §3): ``implies`` ids are forced
+    # active + locked when this item is active; ``forbids`` ids are disallowed. A
+    # ``forbids`` entry may name a capability id OR a grant id (so a future
+    # ``oauth_2_1`` can forbid the ``implicit`` grant). Both empty for a plain item.
+    implies: List[str] = field(default_factory=list)
+    forbids: List[str] = field(default_factory=list)
 
     @property
     def available(self) -> bool:
-        """Runnable in the current build (Phase 0)."""
-        return self.phase <= 0
+        """Runnable in the current build (phase at or below ``CURRENT_PHASE``)."""
+        return self.phase <= CURRENT_PHASE
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -71,6 +86,9 @@ class RegistryItem:
             "default_active": self.default_active,
             "params": [p.to_dict() for p in self.params],
             "incompatibilities": list(self.incompatibilities),
+            "applies_to_grants": list(self.applies_to_grants),
+            "implies": list(self.implies),
+            "forbids": list(self.forbids),
             "available": self.available,
         }
 
@@ -102,6 +120,7 @@ CAPABILITIES: List[Capability] = [
         description="Bind the authorization code to a per-request verifier (S256).",
         spec_ref=SpecRef(rfc="RFC 7636", section="§4"),
         phase=1,
+        applies_to_grants=["authorization_code"],
         params=[
             ParamSpec(
                 name="method",
@@ -118,20 +137,24 @@ CAPABILITIES: List[Capability] = [
         description="Bind the response to the user's session (anti-CSRF).",
         spec_ref=SpecRef(rfc="RFC 6749", section="§10.12"),
         phase=2,
+        applies_to_grants=["authorization_code"],
     ),
     _cap(
         id="dpop",
         label="DPoP",
         description="Sender-constrained tokens via a proof-of-possession key.",
         spec_ref=SpecRef(rfc="RFC 9449", section="§4"),
-        phase=3,
+        phase=6,
+        # Sender-constraining applies to any grant that yields a token.
+        applies_to_grants=[],
     ),
     _cap(
         id="issuer_id",
         label="AS Issuer Identification",
         description="The AS returns its iss in the authorization response (mix-up defense).",
         spec_ref=SpecRef(rfc="RFC 9207", section="§2"),
-        phase=4,
+        phase=7,
+        applies_to_grants=["authorization_code"],
     ),
 ]
 
@@ -142,6 +165,7 @@ ATTACKS: List[Attack] = [
         description="Inject an attacker-obtained code into a victim's session.",
         spec_ref=SpecRef(rfc="RFC 9700", section="§4.5"),
         phase=1,
+        applies_to_grants=["authorization_code"],
         incompatibilities=[],
     ),
     _atk(
@@ -150,27 +174,33 @@ ATTACKS: List[Attack] = [
         description="Reuse a captured code or token a second time.",
         spec_ref=SpecRef(rfc="RFC 6819", section="§4.4.1.1"),
         phase=2,
+        # Code replay is auth-code-specific; token replay applies to any grant, so
+        # this item is not restricted to a single grant.
+        applies_to_grants=[],
     ),
     _atk(
         id="static_secret_leak",
         label="Static-secret leak",
         description="A never-rotating client secret is captured and reused.",
         spec_ref=SpecRef(rfc="RFC 6749", section="§10.3"),
-        phase=3,
+        phase=5,
+        applies_to_grants=["client_credentials"],
     ),
     _atk(
         id="phishing",
         label="Phishing / smishing",
         description="A fake login/consent lure harvests credentials or a code.",
         spec_ref=SpecRef(rfc="RFC 6819", section="§4.4.1.9"),
-        phase=4,
+        phase=7,
+        applies_to_grants=["authorization_code"],
     ),
     _atk(
         id="phish_then_inject",
         label="Chained: phish then inject",
         description="Phishing harvests a detail that enables auth-code injection.",
         spec_ref=SpecRef(rfc="RFC 9700", section="§4"),
-        phase=4,
+        phase=7,
+        applies_to_grants=["authorization_code"],
     ),
 ]
 

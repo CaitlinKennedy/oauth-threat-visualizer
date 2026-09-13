@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from .. import crypto
 from ..contract import Check, HttpExchange, HttpMessage, KnowledgeState, SpecRef
@@ -57,9 +57,7 @@ class AuthServer(abc.ABC):
         """Return the public signing keys (the ``/.well-known/jwks.json`` body)."""
 
     @abc.abstractmethod
-    def authorize(
-        self, params: Dict[str, Any], *, on_behalf_of: str, refs: List[int]
-    ) -> Dict[str, Any]:
+    def authorize(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle an authorization request (``GET /oauth/authorize``).
 
         Validates the client and redirect URI, authenticates the user, records
@@ -68,9 +66,7 @@ class AuthServer(abc.ABC):
         """
 
     @abc.abstractmethod
-    def token(
-        self, params: Dict[str, Any], *, on_behalf_of: str, refs: List[int]
-    ) -> Dict[str, Any]:
+    def token(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Redeem a code for a signed access token (``POST /oauth/token``).
 
         Enforces client authentication, grant type, single-use redemption,
@@ -92,12 +88,11 @@ class AuthServerImpl(AuthServer):
 
     # --- Authorization endpoint -------------------------------------------
 
-    def authorize(
-        self, params: Dict[str, Any], *, on_behalf_of: str, refs: List[int]
-    ) -> Dict[str, Any]:
+    def authorize(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle an authorization request and return the redirect parameters.
 
-        Emits: receive request, authenticate + consent, issue code.
+        Emits: receive request, client/redirect-URI registration check,
+        authenticate + consent, issue code.
         """
         client = self.env.client
         response_type = params.get("response_type")
@@ -106,9 +101,8 @@ class AuthServerImpl(AuthServer):
         scope = params.get("scope", client.scope)
         state = params.get("state")
 
-        recv_seq = self.recorder.emit(
+        self.recorder.emit(
             actor="auth_server",
-            on_behalf_of=on_behalf_of,
             phase="authorize",
             summary="Authorization server receives the authorization request.",
             detail=(
@@ -118,7 +112,6 @@ class AuthServerImpl(AuthServer):
                 "response type is 'code' for the authorization-code grant."
             ),
             outcome="ok",
-            refs=refs,
             http=HttpExchange(
                 request=HttpMessage(
                     method="GET",
@@ -133,23 +126,57 @@ class AuthServerImpl(AuthServer):
                     },
                 ),
                 response=HttpMessage(status=200, body={"page": "login_and_consent"}),
-                highlight=["client_id", "redirect_uri", "response_type"],
+                highlight=[
+                    "request.body.client_id",
+                    "request.body.redirect_uri",
+                    "request.body.response_type",
+                ],
+                source_actor="client",
+                target_actor="auth_server",
             ),
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.1")],
+        )
+
+        # First-class check: the client is registered and the redirect URI exactly
+        # matches a registered one (the authorize-time client binding). Emitted on
+        # PASS too so later phases can highlight it (e.g. exact vs loose matching).
+        registered = client_id == client.client_id
+        redirect_ok = redirect_uri in client.redirect_uris
+        reg_result = "PASS" if (registered and redirect_ok) else "FAIL"
+        self.recorder.emit(
+            actor="auth_server",
+            phase="authorize",
+            summary="Authorization server checks client registration and redirect URI.",
+            detail=(
+                "The server confirms the client_id is registered and that the requested "
+                "redirect URI exactly matches one registered for that client, so the "
+                "code can only be delivered to the client's own endpoint."
+            ),
+            outcome="ok" if reg_result == "PASS" else "blocked",
+            check=Check(
+                name="redirect_uri_registered",
+                rule="client_id is registered AND redirect_uri exactly matches a registered URI",
+                expected="registered client + exact redirect_uri match",
+                actual="registered client + exact match"
+                if reg_result == "PASS"
+                else "unregistered client or redirect_uri mismatch",
+                result=reg_result,
+                spec_ref=SpecRef(rfc="RFC 6749", section="§3.1.2"),
+            ),
+            spec_refs=[SpecRef(rfc="RFC 6749", section="§3.1.2")],
         )
 
         # Real validation of the request.
         if response_type != "code":
             raise OAuthError("unsupported_response_type", f"response_type={response_type!r}")
-        if client_id != client.client_id:
+        if not registered:
             raise OAuthError("unauthorized_client", f"unknown client_id {client_id!r}")
-        if redirect_uri not in client.redirect_uris:
+        if not redirect_ok:
             raise OAuthError("invalid_request", f"unregistered redirect_uri {redirect_uri!r}")
 
         user = self.env.user
-        auth_seq = self.recorder.emit(
+        self.recorder.emit(
             actor="auth_server",
-            on_behalf_of=on_behalf_of,
             phase="authorize",
             summary="User authenticates and consents to the requested scope.",
             detail=(
@@ -158,7 +185,6 @@ class AuthServerImpl(AuthServer):
                 "the account is bundled with the tool."
             ),
             outcome="ok",
-            refs=[recv_seq],
             http=HttpExchange(
                 request=HttpMessage(
                     method="POST",
@@ -166,7 +192,9 @@ class AuthServerImpl(AuthServer):
                     body={"username": user.username, "consent": "approve", "scope": scope},
                 ),
                 response=HttpMessage(status=302, body={"consent": "granted"}),
-                highlight=["consent"],
+                highlight=["request.body.consent"],
+                source_actor="auth_server",
+                target_actor="auth_server",
             ),
             knowledge_delta={
                 "auth_server": KnowledgeState(has=["user_session", "consent"]),
@@ -185,7 +213,6 @@ class AuthServerImpl(AuthServer):
 
         self.recorder.emit(
             actor="auth_server",
-            on_behalf_of=on_behalf_of,
             phase="redirect",
             summary="Authorization server redirects back with a single-use code.",
             detail=(
@@ -195,7 +222,6 @@ class AuthServerImpl(AuthServer):
                 "client and redirect URI; it is not itself a token."
             ),
             outcome="ok",
-            refs=[auth_seq],
             http=HttpExchange(
                 request=HttpMessage(method="GET", url=redirect_uri),
                 response=HttpMessage(
@@ -203,7 +229,9 @@ class AuthServerImpl(AuthServer):
                     headers={"Location": f"{redirect_uri}?code={code}&state={state}"},
                     body={"code": code, "state": state},
                 ),
-                highlight=["code", "state"],
+                highlight=["response.body.code", "response.body.state"],
+                source_actor="auth_server",
+                target_actor="client",
             ),
             knowledge_delta={
                 "auth_server": KnowledgeState(has=["authorization_code"]),
@@ -214,25 +242,22 @@ class AuthServerImpl(AuthServer):
 
     # --- Token endpoint ----------------------------------------------------
 
-    def token(
-        self, params: Dict[str, Any], *, on_behalf_of: str, refs: List[int]
-    ) -> Dict[str, Any]:
+    def token(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Redeem an authorization code for a signed access token.
 
         Enforces client authentication, grant type, single-use code redemption,
-        redirect-URI match, and client binding. Emits a first-class ``check``
-        event for single-use enforcement.
+        redirect-URI match, and client binding, each with a first-class ``check``
+        event (emitted on PASS too, so later phases can highlight them).
         """
         client = self.env.client
-        grant_type = params.get("grant_type")
-        code = params.get("code")
-        redirect_uri = params.get("redirect_uri")
-        client_id = params.get("client_id")
-        client_secret = params.get("client_secret")
+        grant_type = request.get("grant_type")
+        code = request.get("code")
+        redirect_uri = request.get("redirect_uri")
+        client_id = request.get("client_id")
+        client_secret = request.get("client_secret")
 
-        recv_seq = self.recorder.emit(
+        self.recorder.emit(
             actor="auth_server",
-            on_behalf_of=on_behalf_of,
             phase="token",
             summary="Token endpoint receives the code exchange.",
             detail=(
@@ -241,7 +266,6 @@ class AuthServerImpl(AuthServer):
                 "verify the client, then redeem the code."
             ),
             outcome="ok",
-            refs=refs,
             http=HttpExchange(
                 request=HttpMessage(
                     method="POST",
@@ -256,13 +280,36 @@ class AuthServerImpl(AuthServer):
                     },
                 ),
                 response=HttpMessage(status=200, body={"processing": True}),
-                highlight=["code", "grant_type"],
+                highlight=["request.body.code", "request.body.grant_type"],
+                source_actor="client",
+                target_actor="auth_server",
             ),
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.3")],
         )
 
-        # Client authentication (confidential client).
-        if client_id != client.client_id or client_secret != client.client_secret:
+        # First-class client-authentication check (confidential client).
+        client_auth_ok = client_id == client.client_id and client_secret == client.client_secret
+        self.recorder.emit(
+            actor="auth_server",
+            phase="token",
+            summary="Token endpoint authenticates the confidential client.",
+            detail=(
+                "The server checks the client's credentials at the token endpoint. Only "
+                "a client that authenticates as the one the code was issued to may redeem "
+                "it over the back channel."
+            ),
+            outcome="ok" if client_auth_ok else "blocked",
+            check=Check(
+                name="client_authentication",
+                rule="presented client_id + client_secret match the registered client",
+                expected="valid client credentials",
+                actual="authenticated" if client_auth_ok else "authentication failed",
+                result="PASS" if client_auth_ok else "FAIL",
+                spec_ref=SpecRef(rfc="RFC 6749", section="§2.3.1"),
+            ),
+            spec_refs=[SpecRef(rfc="RFC 6749", section="§2.3.1")],
+        )
+        if not client_auth_ok:
             raise OAuthError("invalid_client", "client authentication failed", status=401)
         if grant_type != "authorization_code":
             raise OAuthError("unsupported_grant_type", f"grant_type={grant_type!r}")
@@ -273,9 +320,8 @@ class AuthServerImpl(AuthServer):
         already_used = stored is not None and stored.used
         unknown = stored is None
         check_result = "FAIL" if (already_used or unknown) else "PASS"
-        check_seq = self.recorder.emit(
+        self.recorder.emit(
             actor="auth_server",
-            on_behalf_of=on_behalf_of,
             phase="token",
             summary="Authorization code is redeemed exactly once.",
             detail=(
@@ -284,7 +330,6 @@ class AuthServerImpl(AuthServer):
                 "redeemed is rejected — this is what makes a captured code single-use."
             ),
             outcome="ok" if check_result == "PASS" else "blocked",
-            refs=[recv_seq],
             check=Check(
                 name="authorization_code_single_use",
                 rule="code exists AND not previously redeemed",
@@ -301,6 +346,30 @@ class AuthServerImpl(AuthServer):
         if already_used:
             raise OAuthError("invalid_grant", "authorization code already redeemed")
         assert stored is not None
+
+        # First-class binding check: the code is bound to the client it was issued
+        # to and to the redirect URI it was requested with.
+        binding_ok = stored.client_id == client_id and stored.redirect_uri == redirect_uri
+        self.recorder.emit(
+            actor="auth_server",
+            phase="token",
+            summary="Authorization code binding is verified (client + redirect URI).",
+            detail=(
+                "The server confirms the code was issued to this client and for this "
+                "redirect URI. A code captured by a different client, or presented with a "
+                "different redirect URI, is rejected here."
+            ),
+            outcome="ok" if binding_ok else "blocked",
+            check=Check(
+                name="authorization_code_binding",
+                rule="stored.client_id == client_id AND stored.redirect_uri == redirect_uri",
+                expected="code bound to this client and redirect_uri",
+                actual="binding matches" if binding_ok else "binding mismatch",
+                result="PASS" if binding_ok else "FAIL",
+                spec_ref=SpecRef(rfc="RFC 6749", section="§4.1.3"),
+            ),
+            spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.3")],
+        )
         if stored.client_id != client_id:
             raise OAuthError("invalid_grant", "code was issued to a different client")
         if stored.redirect_uri != redirect_uri:
@@ -320,7 +389,6 @@ class AuthServerImpl(AuthServer):
 
         self.recorder.emit(
             actor="auth_server",
-            on_behalf_of=on_behalf_of,
             phase="token",
             summary="Authorization server issues a signed JWT access token.",
             detail=(
@@ -330,7 +398,6 @@ class AuthServerImpl(AuthServer):
                 "the JWKS endpoint for verification."
             ),
             outcome="ok",
-            refs=[check_seq],
             http=HttpExchange(
                 request=HttpMessage(method="POST", url=self.env.token_url),
                 response=HttpMessage(
@@ -343,7 +410,9 @@ class AuthServerImpl(AuthServer):
                         "scope": stored.scope,
                     },
                 ),
-                highlight=["access_token", "token_type"],
+                highlight=["response.body.access_token", "response.body.token_type"],
+                source_actor="auth_server",
+                target_actor="client",
             ),
             knowledge_delta={
                 "auth_server": KnowledgeState(has=["access_token"]),

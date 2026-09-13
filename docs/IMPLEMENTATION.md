@@ -65,9 +65,17 @@ identical shape**, so the UI can't tell them apart.
                                         //   Reserved in v1.0 so chaining needs no schema change.
   "config": RunConfig,                 // see below — an OPEN id-keyed map, not fixed fields
   "verdict": { "attacker_got_token": false,
+               "user_got_token": true,          // the honest user's outcome, always reported
+               "user_accessed_resource": true,  //   (a run answers both lanes at once)
                "blocked_at_seq": 9,
-               "responsible_capability": "pkce",
+               "responsible_capability": "pkce",         // primary blocker (headline)
+               "responsible_capabilities": ["pkce", "state"], // all contributing blockers,
+                                                              //   primary first; [] if none
                "one_line": "Attacker obtained an access token: NO — PKCE verifier mismatch." },
+  "chain_verdict": null,               // set only on the terminal sub-trace of a chained
+                                        //   attack: a roll-up across its linked stages
+                                        //   ({attacker_got_token, responsible_capabilities,
+                                        //    blocked_at:{trace_id, seq}}). null otherwise.
   "events": [ StepEvent, ... ]
 }
 
@@ -128,7 +136,13 @@ a **typed registry**: each capability and attack is a small self-documenting cla
 (id, label, description, spec ref, param schema, `default_active`, incompatibilities, the
 phase it arrives in, and its enforcement/behaviour hook). The wire stays frozen; the
 registry grows per phase. `GET /api/catalog` (see §5) is just this registry serialized, so
-the UI picker is data-driven and never edited when a capability is added.
+the UI picker is **data-driven**: adding a capability adds a catalog entry the picker
+renders automatically, without a picker rewrite. The accurate invariant is that
+**the wire contract is frozen; the UI grows additively, driven by catalog data** —
+later phases still add *new* rendering (Phase 3 draws meta-capability lock state and
+multi-divergence diffs; Phase 7 adds a second-AS node, a chain-stitched timeline, and
+a multi-capability verdict banner), but they never break the contract or rewrite what
+already exists.
 
 **Paired diff (the flow-2↔3 gesture).** `POST /api/run` accepts an optional `compare`
 block naming a baseline and a variant that differ by one toggle (e.g. `pkce.active`
@@ -140,7 +154,10 @@ server-side rather than reconstructed in the client:
 // POST /api/run  (compare form) → response
 { "mode": "compare",
   "baseline": Trace, "variant": Trace,
-  "divergence": { "seq": 9, "reason": "pkce_verifier_match", "capability": "pkce" } }
+  // divergences is a LIST — one toggle can differ at more than one step (a check
+  // and a downstream outcome). `divergence` is a convenience alias for the first.
+  "divergences": [ { "seq": 9, "reason": "pkce_verifier_match", "capability": "pkce" } ],
+  "divergence":  { "seq": 9, "reason": "pkce_verifier_match", "capability": "pkce" } }
 ```
 
 **Chained attacks** are modeled as **linked sub-traces**: each stage is its own Trace
@@ -182,7 +199,7 @@ so a cold backend still demos.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/catalog` | The typed registry serialized: every capability + attack with id, label, description, spec ref, `default_active`, param schema, `implies`, `forbids`, `incompatibilities`, phase. **The picker renders from this**, so the UI never changes when a capability is added. |
+| `GET /api/catalog` | The typed registry serialized: every capability + attack with id, label, description, spec ref, `default_active`, param schema, `applies_to_grants`, `implies`, `forbids`, `incompatibilities`, phase. **The picker renders from this**: adding a capability adds a catalog entry the picker shows automatically. The wire contract is frozen; the UI grows *additively* from catalog data (a new capability may still bring new rendering, but never a contract change). |
 | `GET /api/scenarios` | Named presets that map to the learning flows (each preset is a ready-made `RunConfig`). |
 | `POST /api/run` | Body = a `RunConfig` (§3); returns the materialized Trace. With an optional `compare` block, returns `{baseline, variant, divergence}` (§3). |
 | `GET /api/fixtures/<id>` | A committed golden trace (demo / fallback). |

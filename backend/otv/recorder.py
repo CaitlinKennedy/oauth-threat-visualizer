@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
+from . import trace_context
 from .contract import (
     Check,
     HttpExchange,
@@ -36,19 +37,35 @@ class Recorder:
         self,
         *,
         actor: str,
-        on_behalf_of: str,
         phase: str,
         summary: str,
         detail: str,
         outcome: str,
+        on_behalf_of: Optional[str] = None,
+        actor_instance: Optional[str] = None,
         refs: Optional[List[int]] = None,
         http: Optional[HttpExchange] = None,
         check: Optional[Check] = None,
         knowledge_delta: Optional[Dict[str, KnowledgeState]] = None,
         spec_refs: Optional[List[SpecRef]] = None,
     ) -> int:
-        """Record a step and return its assigned ``seq``."""
+        """Record a step and return its assigned ``seq``.
+
+        ``on_behalf_of`` and ``actor_instance`` default to the ambient trace frame
+        (see :mod:`otv.trace_context`) so actor code never has to thread them; an
+        explicit value still wins. ``refs`` defaults to a linear causal link to the
+        immediately preceding event; an actor supplies an explicit anchor only for
+        a non-linear dependency it remembers internally.
+        """
         self._seq += 1
+        if on_behalf_of is None:
+            on_behalf_of = trace_context.current_on_behalf_of()
+        if actor_instance is None:
+            actor_instance = trace_context.current_actor_instance()
+        if refs is None:
+            # Auto causal chain: depend on the immediately preceding event (none
+            # for the very first step).
+            refs = [self._seq - 1] if self._seq > 1 else []
         delta = knowledge_delta or {}
         self._apply_ledger(delta)
         event = StepEvent(
@@ -59,7 +76,8 @@ class Recorder:
             summary=summary,
             detail=detail,
             outcome=outcome,
-            refs=refs or [],
+            refs=refs,
+            actor_instance=actor_instance,
             http=http,
             check=check,
             knowledge_delta=delta,

@@ -41,7 +41,14 @@ def test_all_steps_ok_and_expected_phases(happy_trace):
 
 def test_checks_present_and_passing(happy_trace):
     checks = {e.check.name: e.check for e in happy_trace.events if e.check}
-    assert set(checks) == {"authorization_code_single_use", "access_token_validation"}
+    assert set(checks) == {
+        "redirect_uri_registered",
+        "state_matches_session",
+        "client_authentication",
+        "authorization_code_single_use",
+        "authorization_code_binding",
+        "access_token_validation",
+    }
     assert all(c.result == "PASS" for c in checks.values())
 
 
@@ -74,6 +81,7 @@ def test_single_use_code_is_enforced(happy_trace):
     """Redeeming the same code twice must be rejected by the auth server."""
     from otv.actors.auth_server import AuthServerImpl, OAuthError
     from otv.recorder import Recorder
+    from otv.trace_context import acting
 
     env = Environment()
     recorder = Recorder("run_test", ScenarioConfig(grant="authorization_code"))
@@ -85,17 +93,18 @@ def test_single_use_code_is_enforced(happy_trace):
         "scope": env.client.scope,
         "state": "st_x",
     }
-    redirect = auth.authorize(params, on_behalf_of="user", refs=[])
-    token_params = {
-        "grant_type": "authorization_code",
-        "code": redirect["code"],
-        "redirect_uri": env.client.redirect_uri,
-        "client_id": env.client.client_id,
-        "client_secret": env.client.client_secret,
-    }
-    auth.token(dict(token_params), on_behalf_of="user", refs=[])  # first: ok
-    with pytest.raises(OAuthError) as exc:  # second: rejected
-        auth.token(dict(token_params), on_behalf_of="user", refs=[])
+    with acting(on_behalf_of="user"):
+        redirect = auth.authorize(params)
+        token_params = {
+            "grant_type": "authorization_code",
+            "code": redirect["code"],
+            "redirect_uri": env.client.redirect_uri,
+            "client_id": env.client.client_id,
+            "client_secret": env.client.client_secret,
+        }
+        auth.token(dict(token_params))  # first: ok
+        with pytest.raises(OAuthError) as exc:  # second: rejected
+            auth.token(dict(token_params))
     assert exc.value.error == "invalid_grant"
 
 

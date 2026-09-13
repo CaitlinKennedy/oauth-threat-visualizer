@@ -46,19 +46,34 @@ export default function App() {
   }, []);
 
   // Boot in demo mode: load presets + catalog and immediately run the default.
+  // The catalog loads independently (allSettled) so a catalog-only failure never
+  // drops the presets or the live run — the strip just degrades on its own.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const [p, c] = await Promise.all([fetchPresets(), fetchCatalog()]);
-        if (cancelled) return;
+      const [presetsRes, catalogRes] = await Promise.allSettled([
+        fetchPresets(),
+        fetchCatalog(),
+      ]);
+      if (cancelled) return;
+
+      if (catalogRes.status === "fulfilled") {
+        setCatalog(catalogRes.value);
+      }
+
+      if (presetsRes.status === "fulfilled") {
+        const p = presetsRes.value;
         setPresets(p.presets);
-        setCatalog(c);
         const preset =
           p.presets.find((x) => x.id === p.default_preset) ?? p.presets[0];
-        await loadPreset(preset);
-      } catch {
-        if (cancelled) return;
+        if (preset) await loadPreset(preset);
+        else {
+          setTrace(fallbackTrace());
+          setStatus("No scenarios returned — showing bundled demo trace.");
+        }
+      } else {
+        // Presets (and thus the live run) are unavailable: fall back to the
+        // bundled golden trace so the app still demos.
         setTrace(fallbackTrace());
         setStatus("Backend unreachable — showing bundled demo trace.");
       }
@@ -96,7 +111,8 @@ export default function App() {
   // Keyboard stepping: arrows step, space toggles play, Home/End jump.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement)?.tagName;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (e.key === "ArrowRight") {
         e.preventDefault();
@@ -105,6 +121,17 @@ export default function App() {
         e.preventDefault();
         prev();
       } else if (e.key === " ") {
+        // Don't hijack Space when a button/interactive control is focused —
+        // otherwise it would both toggle play and activate the control.
+        if (
+          tag === "BUTTON" ||
+          tag === "A" ||
+          tag === "SELECT" ||
+          target?.getAttribute?.("role") === "button" ||
+          target?.isContentEditable
+        ) {
+          return;
+        }
         e.preventDefault();
         setPlaying((p) => !p);
       } else if (e.key === "Home") {

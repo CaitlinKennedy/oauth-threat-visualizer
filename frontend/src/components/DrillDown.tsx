@@ -81,11 +81,13 @@ export function DrillDown({ event }: Props) {
         <div className="http">
           <HttpBlock
             title="Request"
+            side="request"
             msg={event.http.request}
             highlight={event.http.highlight}
           />
           <HttpBlock
             title="Response"
+            side="response"
             msg={event.http.response}
             highlight={event.http.highlight}
           />
@@ -123,16 +125,31 @@ function OutcomeTag({ outcome }: { outcome: StepEvent["outcome"] }) {
   );
 }
 
+// A highlight entry is a dotted path `<side>.<section>.<key>` (see contract). A
+// field is decisive when the set holds that exact path; as a fallback (for any
+// bare-key entries) the trailing segment is also matched.
+function makeMatcher(highlight: string[], side: "request" | "response") {
+  const set = new Set(highlight);
+  const bareKeys = new Set(
+    highlight.filter((h) => !h.includes(".")).map((h) => h),
+  );
+  return (section: "headers" | "body" | "query", key: string): boolean =>
+    set.has(`${side}.${section}.${key}`) || bareKeys.has(key);
+}
+
 function HttpBlock({
   title,
+  side,
   msg,
   highlight,
 }: {
   title: string;
+  side: "request" | "response";
   msg: HttpMessage;
   highlight: string[];
 }) {
-  const hi = new Set(highlight);
+  const isHi = makeMatcher(highlight, side);
+  const headers = msg.headers ? Object.entries(msg.headers) : [];
   return (
     <div className="http-block">
       <div className="http-line">
@@ -141,35 +158,46 @@ function HttpBlock({
         {msg.url && <span className="http-url">{msg.url}</span>}
         {msg.status != null && <span className="http-status">{msg.status}</span>}
       </div>
-      {msg.headers && Object.keys(msg.headers).length > 0 && (
+      {headers.length > 0 && (
         <pre className="http-headers">
-          {Object.entries(msg.headers)
-            .map(([k, v]) => `${k}: ${String(v)}`)
-            .join("\n")}
+          {headers.map(([k, v]) => (
+            <div key={k} className={isHi("headers", k) ? "kv kv-hi" : "kv"}>
+              <span className="kv-key">
+                {isHi("headers", k) && <span aria-hidden="true">▶ </span>}
+                {k}
+              </span>
+              : {String(v)}
+              {isHi("headers", k) && <span className="kv-flag"> ← decisive</span>}
+            </div>
+          ))}
         </pre>
       )}
-      {msg.body != null && (
-        <BodyView body={msg.body} highlight={hi} />
-      )}
+      {msg.body != null && <BodyView body={msg.body} isHi={isHi} />}
     </div>
   );
 }
 
-function BodyView({ body, highlight }: { body: unknown; highlight: Set<string> }) {
+function BodyView({
+  body,
+  isHi,
+}: {
+  body: unknown;
+  isHi: (section: "headers" | "body" | "query", key: string) => boolean;
+}) {
   if (body && typeof body === "object" && !Array.isArray(body)) {
     const entries = Object.entries(body as Record<string, unknown>);
     return (
       <pre className="http-body">
         {"{"}
         {entries.map(([k, v]) => (
-          <div key={k} className={highlight.has(k) ? "kv kv-hi" : "kv"}>
+          <div key={k} className={isHi("body", k) ? "kv kv-hi" : "kv"}>
             {"  "}
             <span className="kv-key">
-              {highlight.has(k) && <span aria-hidden="true">▶ </span>}
+              {isHi("body", k) && <span aria-hidden="true">▶ </span>}
               {JSON.stringify(k)}
             </span>
             : {truncate(JSON.stringify(v))}
-            {highlight.has(k) && <span className="kv-flag"> ← decisive</span>}
+            {isHi("body", k) && <span className="kv-flag"> ← decisive</span>}
           </div>
         ))}
         {"}"}
