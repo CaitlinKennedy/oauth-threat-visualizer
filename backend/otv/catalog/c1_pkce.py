@@ -12,6 +12,9 @@ capability(
     spec_ref=SpecRef(rfc="RFC 7636", section="§4"),
     phase=1,
     applies_to_grants=["authorization_code"],
+    # The first-class check this capability's own enforcement emits (see
+    # engine.runners.support.CHECK_TO_CAPABILITY, derived by scanning this).
+    check_names=["pkce_verifier_match"],
     params=[
         ParamSpec(
             name="method",

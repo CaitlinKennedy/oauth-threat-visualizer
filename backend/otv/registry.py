@@ -79,6 +79,13 @@ class RegistryItem:
     # ``oauth_2_1`` can forbid the ``implicit`` grant). Both empty for a plain item.
     implies: List[str] = field(default_factory=list)
     forbids: List[str] = field(default_factory=list)
+    # Names of the first-class ``Check``s (contract.Check.name) this item's own
+    # enforcement emits. Lets a check-to-capability attribution (e.g. "which
+    # toggle blocked this run?") be DERIVED by scanning the registry instead of
+    # living in a hand-maintained central map — see
+    # ``engine.runners.support.CHECK_TO_CAPABILITY``. Empty for an item that
+    # emits no first-class check (e.g. an attack).
+    check_names: List[str] = field(default_factory=list)
 
     @property
     def available(self) -> bool:
@@ -99,6 +106,7 @@ class RegistryItem:
             "applies_to_grants": list(self.applies_to_grants),
             "implies": list(self.implies),
             "forbids": list(self.forbids),
+            "check_names": list(self.check_names),
             "available": self.available,
         }
 

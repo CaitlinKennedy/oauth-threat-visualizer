@@ -14,18 +14,40 @@ from typing import Any, Dict, Optional
 from ... import crypto
 from ...contract import ScenarioConfig, StepEvent
 from ...recorder import Recorder
+from ...registry import ATTACKS, CAPABILITIES
 from ...trace_context import acting
 from ...actors.auth_server import AuthServer
 from ...actors.client import Client
 from ...actors.resource_server import ResourceServer
 
-# Which capability a given first-class check enforces. Used to attribute a block
-# to the responsible capability *from the emitted trace* (the failing check),
-# rather than hard-coding the verdict.
-CHECK_TO_CAPABILITY = {
-    "pkce_verifier_match": "pkce",
-    "state_matches_session": "state",
-}
+
+def _build_check_to_capability() -> Dict[str, str]:
+    """Invert every catalogued item's ``check_names`` into check -> owning id.
+
+    This is what lets a runner attribute a block to the responsible capability
+    *from the emitted trace* (the failing check) without a hard-coded verdict.
+    Built by scanning the registry (each capability/attack declares its own
+    ``check_names`` in its own catalog file — see ``otv.registry.RegistryItem``),
+    so a future capability needs no edit here: it just declares its check names
+    where it is defined.
+    """
+    mapping: Dict[str, str] = {}
+    for item in (*CAPABILITIES, *ATTACKS):
+        for name in item.check_names:
+            owner = mapping.get(name)
+            if owner is not None and owner != item.id:
+                raise ValueError(
+                    f"check {name!r} is claimed by both {owner!r} and {item.id!r}"
+                )
+            mapping[name] = item.id
+    return mapping
+
+
+# Which capability a given first-class check enforces, derived from the registry
+# (each capability declares its own ``check_names``) rather than hand-maintained
+# here. Used to attribute a block to the responsible capability *from the
+# emitted trace* (the failing check), rather than hard-coding the verdict.
+CHECK_TO_CAPABILITY: Dict[str, str] = _build_check_to_capability()
 
 
 def pkce_method(config: ScenarioConfig) -> Optional[str]:

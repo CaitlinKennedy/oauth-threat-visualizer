@@ -18,4 +18,7 @@ capability(
     spec_ref=SpecRef(rfc="RFC 6749", section="§10.12"),
     phase=2,
     applies_to_grants=["authorization_code"],
+    # The first-class check this capability's own enforcement emits (see
+    # engine.runners.support.CHECK_TO_CAPABILITY, derived by scanning this).
+    check_names=["state_matches_session"],
 )
