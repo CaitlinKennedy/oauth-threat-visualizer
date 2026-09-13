@@ -29,5 +29,10 @@ COPY --from=ui /ui/dist ./static
 
 EXPOSE 8000
 
-# gunicorn serves the WSGI app object from app.py.
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "60", "app:app"]
+# gunicorn serves the WSGI app object from app.py. Shell form so ${PORT} expands at
+# container start — hosting platforms (Cloud Run, Fly, Render) inject their own PORT
+# (Cloud Run defaults to 8080), so a hardcoded bind fails readiness there. Falls back to
+# 8000 for local `docker run` with no PORT set. --max-requests* recycles workers
+# periodically to bound the effect of any single-worker memory leak; --access/error-logfile
+# - send gunicorn's logs to stdout/stderr for platform log capture.
+CMD gunicorn app:app --bind 0.0.0.0:${PORT:-8000} --workers 2 --timeout 60 --graceful-timeout 30 --max-requests 500 --max-requests-jitter 50 --access-logfile - --error-logfile -
