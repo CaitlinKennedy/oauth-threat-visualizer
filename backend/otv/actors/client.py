@@ -62,13 +62,25 @@ class Client(abc.ABC):
 
 
 class ClientImpl(Client):
-    def __init__(self, recorder: Recorder, env: Environment):
+    def __init__(
+        self, recorder: Recorder, env: Environment, *, pkce_method: Optional[str] = None
+    ):
         self.recorder = recorder
         self.env = env
         # A per-flow anti-CSRF value. The 'state' capability (binding the
         # response to the session) is exercised fully in a later phase; the
         # client already generates and echoes it here.
         self.state = crypto.new_opaque_token(prefix="st_")
+        # PKCE (RFC 7636): when the capability is active, the client generates a
+        # real per-request verifier and derives the challenge it sends to the AS.
+        # The verifier never leaves the client until the back-channel token
+        # exchange — that secrecy is exactly what defeats code injection.
+        self.pkce_method: Optional[str] = pkce_method
+        self.code_verifier: Optional[str] = None
+        self.code_challenge: Optional[str] = None
+        if pkce_method:
+            self.code_verifier = crypto.new_code_verifier()
+            self.code_challenge = crypto.code_challenge_for(self.code_verifier, pkce_method)
         self._access_token: Optional[str] = None
         # The seq of this client's own authorization request, remembered so the
         # redirect-receipt step can causally reference it without the seq being
@@ -77,23 +89,37 @@ class ClientImpl(Client):
 
     def start_authorization(self) -> Dict[str, Any]:
         client = self.env.client
-        params = {
+        params: Dict[str, Any] = {
             "response_type": "code",
             "client_id": client.client_id,
             "redirect_uri": client.redirect_uri,
             "scope": client.scope,
             "state": self.state,
         }
+        highlight = ["request.body.response_type", "request.body.state"]
+        has = ["state", "redirect_uri", "client_credentials"]
+        detail = (
+            "The client builds an authorization request and redirects the user's "
+            "browser to the authorization server. It asks for an authorization "
+            "'code' (not a token directly) and includes a 'state' value to tie the "
+            "eventual response back to this browser session."
+        )
+        if self.pkce_method:
+            params["code_challenge"] = self.code_challenge
+            params["code_challenge_method"] = self.pkce_method
+            highlight.append("request.body.code_challenge")
+            # The client holds the secret verifier; only the challenge goes on the wire.
+            has += ["code_verifier", "code_challenge"]
+            detail += (
+                " Because PKCE is enabled, the client also generates a secret "
+                "code_verifier, keeps it, and sends only its S256 code_challenge — "
+                "binding the eventual code to this specific client instance."
+            )
         seq = self.recorder.emit(
             actor="client",
             phase="authorize",
             summary="Client starts the authorization-code flow.",
-            detail=(
-                "The client builds an authorization request and redirects the user's "
-                "browser to the authorization server. It asks for an authorization "
-                "'code' (not a token directly) and includes a 'state' value to tie the "
-                "eventual response back to this browser session."
-            ),
+            detail=detail,
             outcome="ok",
             http=HttpExchange(
                 request=HttpMessage(
@@ -102,12 +128,12 @@ class ClientImpl(Client):
                     body=params,
                 ),
                 response=HttpMessage(status=302, body={"redirecting_to": "authorization_server"}),
-                highlight=["request.body.response_type", "request.body.state"],
+                highlight=highlight,
                 source_actor="client",
                 target_actor="auth_server",
             ),
             knowledge_delta={
-                "client": KnowledgeState(has=["state", "redirect_uri", "client_credentials"]),
+                "client": KnowledgeState(has=has),
             },
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.1")],
         )
@@ -176,6 +202,10 @@ class ClientImpl(Client):
             "client_id": client.client_id,
             "client_secret": client.client_secret,
         }
+        if self.pkce_method:
+            # Present the secret verifier now, over the back channel, so the AS can
+            # recompute the challenge and confirm this is the same client instance.
+            token_request["code_verifier"] = self.code_verifier
         # Real back-channel call through the AuthServer *interface* (pure protocol:
         # no trace-plumbing crosses the seam).
         token_response = auth_server.token(token_request)

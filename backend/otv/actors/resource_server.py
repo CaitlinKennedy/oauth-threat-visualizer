@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 
 import jwt
 
-from .. import crypto
+from .. import crypto, trace_context
 from ..contract import Check, HttpExchange, HttpMessage, KnowledgeState, SpecRef
 from ..recorder import Recorder
 from .auth_server import AuthServer
@@ -52,6 +52,11 @@ class ResourceServerImpl(ResourceServer):
     def get_resource(self, request: Dict[str, Any]) -> Dict[str, Any]:
         auth_header = request.get("headers", {}).get("Authorization", "")
         token = auth_header[len("Bearer ") :] if auth_header.startswith("Bearer ") else ""
+
+        # The peer presenting the token (ambient request scope). Defaults to the
+        # legitimate client so the happy path is unchanged; an attacker replaying a
+        # stolen token is attributed to the attacker lane.
+        peer = trace_context.current_source_actor() or "client"
 
         jwks = self._auth_server.jwks()
         valid = True
@@ -90,7 +95,7 @@ class ResourceServerImpl(ResourceServer):
                     body={"validated": valid} if valid else {"error": "invalid_token"},
                 ),
                 highlight=["request.headers.Authorization"],
-                source_actor="client",
+                source_actor=peer,
                 target_actor="resource_server",
             ),
             check=Check(
@@ -138,7 +143,7 @@ class ResourceServerImpl(ResourceServer):
                     ),
                     highlight=["response.body.sub"],
                     source_actor="resource_server",
-                    target_actor="client",
+                    target_actor=peer,
                 ),
                 spec_refs=[SpecRef(rfc="RFC 6749", section="§7")],
             )
@@ -170,7 +175,7 @@ class ResourceServerImpl(ResourceServer):
                 ),
                 highlight=["response.body.sub", "response.body.scope"],
                 source_actor="resource_server",
-                target_actor="client",
+                target_actor=peer,
             ),
             spec_refs=[SpecRef(rfc="RFC 6749", section="§7")],
         )

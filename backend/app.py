@@ -23,7 +23,14 @@ from typing import Any, Dict, Optional
 from flask import Flask, jsonify, request, send_from_directory
 
 from otv import registry, scenarios
-from otv.contract import ContractError, ScenarioConfig, trace_from_dict, validate
+from otv.contract import (
+    ContractError,
+    ScenarioConfig,
+    trace_from_dict,
+    validate,
+    validate_compare_response,
+)
+from otv.engine.compare import run_compare
 from otv.engine.conductor import UnsupportedScenario, run
 
 FIXTURES_DIR = Path(__file__).parent / "otv" / "fixtures"
@@ -90,6 +97,12 @@ def create_app() -> Flask:
         body = request.get_json(silent=True)
         if not isinstance(body, dict):
             return jsonify({"error": "bad_request", "message": "body must be a JSON object"}), 400
+
+        # Paired-diff form: {"compare": {"baseline": <config>, "variant": <config>}}.
+        # Runs both and returns {mode, baseline, variant, divergences, divergence}.
+        if isinstance(body.get("compare"), dict):
+            return _run_compare(body["compare"])
+
         raw_config = body.get("config", body)  # accept {config:{...}} or a bare config
         if not isinstance(raw_config, dict):
             return jsonify({"error": "bad_request", "message": "config must be an object"}), 400
@@ -129,6 +142,41 @@ def create_app() -> Flask:
                 ),
                 500,
             )
+
+    def _run_compare(compare: Dict[str, Any]):
+        """Run a baseline + variant that differ by one toggle; return the diff."""
+        baseline_raw = compare.get("baseline")
+        variant_raw = compare.get("variant")
+        if not isinstance(baseline_raw, dict) or not isinstance(variant_raw, dict):
+            return (
+                jsonify(
+                    {
+                        "error": "bad_request",
+                        "message": "compare needs object 'baseline' and 'variant' configs",
+                    }
+                ),
+                400,
+            )
+        try:
+            baseline_cfg = scenarios.config_from_dict(baseline_raw)
+            variant_cfg = scenarios.config_from_dict(variant_raw)
+        except (ContractError, ValueError, TypeError) as exc:
+            return jsonify({"error": "bad_request", "message": str(exc)}), 400
+        try:
+            resp = run_compare(baseline_cfg, variant_cfg)
+        except UnsupportedScenario as exc:
+            return (
+                jsonify(
+                    {"mode": "unsupported", "error": "not_available", "message": str(exc)}
+                ),
+                501,
+            )
+        except Exception as exc:  # a genuine, unexpected live-run crash
+            app.logger.exception("compare run crashed")
+            return jsonify({"mode": "error", "error": "run_failed", "message": str(exc)}), 500
+        payload = resp.to_dict()
+        validate_compare_response(payload)  # never hand the UI a broken diff
+        return jsonify(payload)
 
     def _fixture_response(fixture_id: str, *, source: str):
         data = _load_fixture(fixture_id)

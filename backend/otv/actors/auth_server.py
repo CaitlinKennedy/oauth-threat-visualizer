@@ -20,20 +20,28 @@ import abc
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from .. import crypto
+from .. import crypto, trace_context
 from ..contract import Check, HttpExchange, HttpMessage, KnowledgeState, SpecRef
 from ..recorder import Recorder
 from .environment import Environment
 
 
 class OAuthError(Exception):
-    """An OAuth protocol error (maps to an error response at an endpoint)."""
+    """An OAuth protocol error (maps to an error response at an endpoint).
 
-    def __init__(self, error: str, description: str, status: int = 400):
+    ``at_seq`` records the seq of the ``check`` event that produced the rejection,
+    so a caller (e.g. the attacker observing the rejection) can anchor its own
+    step's causal ``refs`` at the truthful decisive step rather than guessing.
+    """
+
+    def __init__(
+        self, error: str, description: str, status: int = 400, at_seq: int | None = None
+    ):
         super().__init__(f"{error}: {description}")
         self.error = error
         self.description = description
         self.status = status
+        self.at_seq = at_seq
 
 
 @dataclass
@@ -43,6 +51,14 @@ class _StoredCode:
     sub: str
     scope: str
     used: bool = False
+    # PKCE binding (RFC 7636): the challenge the client registered at /authorize,
+    # stored with the code so the token endpoint can require a matching verifier.
+    # ``None`` when the flow ran without PKCE.
+    code_challenge: Optional[str] = None
+    code_challenge_method: Optional[str] = None
+    # The seq at which this code (and its challenge) was issued, so the
+    # token-endpoint checks can ref the truthful causal origin of the code.
+    issue_seq: Optional[int] = None
 
 
 class AuthServer(abc.ABC):
@@ -100,8 +116,30 @@ class AuthServerImpl(AuthServer):
         redirect_uri = params.get("redirect_uri")
         scope = params.get("scope", client.scope)
         state = params.get("state")
+        # PKCE (RFC 7636): the client MAY bind the code to a per-request verifier by
+        # sending a challenge here. When present, the token endpoint will require a
+        # matching verifier — this is what defeats code injection.
+        code_challenge = params.get("code_challenge")
+        code_challenge_method = params.get("code_challenge_method")
 
-        self.recorder.emit(
+        request_body: Dict[str, Any] = {
+            "response_type": response_type,
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": scope,
+            "state": state,
+        }
+        highlight = [
+            "request.body.client_id",
+            "request.body.redirect_uri",
+            "request.body.response_type",
+        ]
+        if code_challenge is not None:
+            request_body["code_challenge"] = code_challenge
+            request_body["code_challenge_method"] = code_challenge_method
+            highlight.append("request.body.code_challenge")
+
+        receive_seq = self.recorder.emit(
             actor="auth_server",
             phase="authorize",
             summary="Authorization server receives the authorization request.",
@@ -110,6 +148,12 @@ class AuthServerImpl(AuthServer):
                 "client's request. The server checks that the client is registered, that "
                 "the redirect URI exactly matches one it registered, and that the "
                 "response type is 'code' for the authorization-code grant."
+                + (
+                    " The request also carries a PKCE code_challenge, which the server "
+                    "will bind to the code it issues."
+                    if code_challenge is not None
+                    else ""
+                )
             ),
             outcome="ok",
             http=HttpExchange(
@@ -117,20 +161,10 @@ class AuthServerImpl(AuthServer):
                     method="GET",
                     url=self.env.authorize_url,
                     headers={"Host": "auth.oauthlab.internal"},
-                    body={
-                        "response_type": response_type,
-                        "client_id": client_id,
-                        "redirect_uri": redirect_uri,
-                        "scope": scope,
-                        "state": state,
-                    },
+                    body=request_body,
                 ),
                 response=HttpMessage(status=200, body={"page": "login_and_consent"}),
-                highlight=[
-                    "request.body.client_id",
-                    "request.body.redirect_uri",
-                    "request.body.response_type",
-                ],
+                highlight=highlight,
                 source_actor="client",
                 target_actor="auth_server",
             ),
@@ -202,16 +236,23 @@ class AuthServerImpl(AuthServer):
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.1")],
         )
 
-        # Mint a single-use authorization code bound to this client + redirect URI.
+        # Mint a single-use authorization code bound to this client + redirect URI
+        # (and, when PKCE is in use, to the code_challenge).
         code = crypto.new_opaque_token(prefix="ac_")
-        self._codes[code] = _StoredCode(
+        stored = _StoredCode(
             client_id=client_id,
             redirect_uri=redirect_uri,
             sub=user.sub,
             scope=scope,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method or ("S256" if code_challenge else None),
         )
+        self._codes[code] = stored
 
-        self.recorder.emit(
+        as_has = ["authorization_code"]
+        if code_challenge is not None:
+            as_has.append("code_challenge")
+        issue_seq = self.recorder.emit(
             actor="auth_server",
             phase="redirect",
             summary="Authorization server redirects back with a single-use code.",
@@ -220,8 +261,18 @@ class AuthServerImpl(AuthServer):
                 "redirects the browser to the client's registered redirect URI, echoing "
                 "the 'state' value unchanged. The code is bound server-side to this "
                 "client and redirect URI; it is not itself a token."
+                + (
+                    " Because PKCE is in use, the server also records the code_challenge "
+                    "against the code, so only the party that holds the matching "
+                    "code_verifier can redeem it."
+                    if code_challenge is not None
+                    else ""
+                )
             ),
             outcome="ok",
+            # Truthful causality: the code responds to the authorization request that
+            # carried the client/redirect (and, under PKCE, the challenge).
+            refs=[receive_seq],
             http=HttpExchange(
                 request=HttpMessage(method="GET", url=redirect_uri),
                 response=HttpMessage(
@@ -234,11 +285,17 @@ class AuthServerImpl(AuthServer):
                 target_actor="client",
             ),
             knowledge_delta={
-                "auth_server": KnowledgeState(has=["authorization_code"]),
+                "auth_server": KnowledgeState(has=as_has),
             },
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.2")],
         )
-        return {"code": code, "state": state, "redirect_uri": redirect_uri}
+        stored.issue_seq = issue_seq
+        return {
+            "code": code,
+            "state": state,
+            "redirect_uri": redirect_uri,
+            "issue_seq": issue_seq,
+        }
 
     # --- Token endpoint ----------------------------------------------------
 
@@ -255,8 +312,30 @@ class AuthServerImpl(AuthServer):
         redirect_uri = request.get("redirect_uri")
         client_id = request.get("client_id")
         client_secret = request.get("client_secret")
+        code_verifier = request.get("code_verifier")
 
-        self.recorder.emit(
+        # The peer that sent this request. In a REST deployment this is the
+        # authenticated caller; here it is carried in the ambient trace context, so
+        # the same endpoint serves the honest client and an injecting attacker
+        # without the caller identity crossing the pure-protocol interface. Defaults
+        # to the legitimate client, keeping the happy path unchanged.
+        peer = trace_context.current_source_actor() or "client"
+
+        request_body: Dict[str, Any] = {
+            "grant_type": grant_type,
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "client_id": client_id,
+            "client_secret": _redact(client_secret),
+        }
+        receive_highlight = ["request.body.code", "request.body.grant_type"]
+        if code_verifier is not None:
+            request_body["code_verifier"] = code_verifier
+            # The two params that decide a code-injection attempt: the code the
+            # caller holds, and the verifier it must also hold under PKCE.
+            receive_highlight = ["request.body.code", "request.body.code_verifier"]
+
+        receive_seq = self.recorder.emit(
             actor="auth_server",
             phase="token",
             summary="Token endpoint receives the code exchange.",
@@ -271,17 +350,11 @@ class AuthServerImpl(AuthServer):
                     method="POST",
                     url=self.env.token_url,
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    body={
-                        "grant_type": grant_type,
-                        "code": code,
-                        "redirect_uri": redirect_uri,
-                        "client_id": client_id,
-                        "client_secret": _redact(client_secret),
-                    },
+                    body=request_body,
                 ),
                 response=HttpMessage(status=200, body={"processing": True}),
-                highlight=["request.body.code", "request.body.grant_type"],
-                source_actor="client",
+                highlight=receive_highlight,
+                source_actor=peer,
                 target_actor="auth_server",
             ),
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.3")],
@@ -316,11 +389,18 @@ class AuthServerImpl(AuthServer):
 
         stored = self._codes.get(code)
 
+        # Truthful causality for every code-related check: it depends on where the
+        # code (and its challenge) was issued and on the exchange request presenting
+        # it. For an unknown code there is no issuance to anchor to.
+        code_refs = [receive_seq]
+        if stored is not None and stored.issue_seq is not None:
+            code_refs = [stored.issue_seq, receive_seq]
+
         # First-class single-use check (the core auth-code safety property).
         already_used = stored is not None and stored.used
         unknown = stored is None
         check_result = "FAIL" if (already_used or unknown) else "PASS"
-        self.recorder.emit(
+        single_use_seq = self.recorder.emit(
             actor="auth_server",
             phase="token",
             summary="Authorization code is redeemed exactly once.",
@@ -330,6 +410,7 @@ class AuthServerImpl(AuthServer):
                 "redeemed is rejected — this is what makes a captured code single-use."
             ),
             outcome="ok" if check_result == "PASS" else "blocked",
+            refs=code_refs,
             check=Check(
                 name="authorization_code_single_use",
                 rule="code exists AND not previously redeemed",
@@ -342,15 +423,17 @@ class AuthServerImpl(AuthServer):
         )
 
         if unknown:
-            raise OAuthError("invalid_grant", "unknown authorization code")
+            raise OAuthError("invalid_grant", "unknown authorization code", at_seq=single_use_seq)
         if already_used:
-            raise OAuthError("invalid_grant", "authorization code already redeemed")
+            raise OAuthError(
+                "invalid_grant", "authorization code already redeemed", at_seq=single_use_seq
+            )
         assert stored is not None
 
         # First-class binding check: the code is bound to the client it was issued
         # to and to the redirect URI it was requested with.
         binding_ok = stored.client_id == client_id and stored.redirect_uri == redirect_uri
-        self.recorder.emit(
+        binding_seq = self.recorder.emit(
             actor="auth_server",
             phase="token",
             summary="Authorization code binding is verified (client + redirect URI).",
@@ -360,6 +443,7 @@ class AuthServerImpl(AuthServer):
                 "different redirect URI, is rejected here."
             ),
             outcome="ok" if binding_ok else "blocked",
+            refs=code_refs,
             check=Check(
                 name="authorization_code_binding",
                 rule="stored.client_id == client_id AND stored.redirect_uri == redirect_uri",
@@ -371,9 +455,57 @@ class AuthServerImpl(AuthServer):
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.3")],
         )
         if stored.client_id != client_id:
-            raise OAuthError("invalid_grant", "code was issued to a different client")
+            raise OAuthError(
+                "invalid_grant", "code was issued to a different client", at_seq=binding_seq
+            )
         if stored.redirect_uri != redirect_uri:
-            raise OAuthError("invalid_grant", "redirect_uri does not match")
+            raise OAuthError("invalid_grant", "redirect_uri does not match", at_seq=binding_seq)
+
+        # First-class PKCE check (RFC 7636 §4.6). Enforced iff the code carries a
+        # challenge — i.e. PKCE was used at /authorize. This is the binding that
+        # defeats auth-code injection: the redeemer must prove it holds the
+        # per-request verifier, which the code alone does not reveal. The block is
+        # produced by real S256 arithmetic (crypto.verify_pkce), not a scripted
+        # verdict. ``last_gate_seq`` is the seq the issuance step will depend on.
+        last_gate_seq = binding_seq
+        if stored.code_challenge is not None:
+            method = stored.code_challenge_method or "S256"
+            pkce_ok = crypto.verify_pkce(code_verifier, stored.code_challenge, method)
+            actual_challenge = (
+                crypto.code_challenge_for(code_verifier, method)
+                if code_verifier
+                else "(no code_verifier presented)"
+            )
+            pkce_seq = self.recorder.emit(
+                actor="auth_server",
+                phase="token",
+                summary="Token endpoint verifies the PKCE code_verifier.",
+                detail=(
+                    "PKCE was used to start this flow, so the code is bound to a "
+                    "code_challenge. The server recomputes the challenge from the "
+                    "presented code_verifier and requires it to equal the stored "
+                    "code_challenge. The authorization code alone is not enough: only "
+                    "the party that generated the verifier — the client instance that "
+                    "began the flow — can satisfy this, so a redeemer that merely "
+                    "captured the code cannot."
+                ),
+                outcome="ok" if pkce_ok else "blocked",
+                refs=code_refs,
+                check=Check(
+                    name="pkce_verifier_match",
+                    rule="S256(code_verifier) == code_challenge",
+                    expected=stored.code_challenge,
+                    actual=actual_challenge,
+                    result="PASS" if pkce_ok else "FAIL",
+                    spec_ref=SpecRef(rfc="RFC 7636", section="§4.6"),
+                ),
+                spec_refs=[SpecRef(rfc="RFC 7636", section="§4.6")],
+            )
+            last_gate_seq = pkce_seq
+            if not pkce_ok:
+                raise OAuthError(
+                    "invalid_grant", "PKCE code_verifier mismatch", at_seq=pkce_seq
+                )
 
         stored.used = True  # single-use enforcement
 
@@ -394,10 +526,12 @@ class AuthServerImpl(AuthServer):
             detail=(
                 "The code is valid and now spent. The server signs a real RS256 JWT "
                 "access token with its private key, scoped to the resource server's "
-                "audience, and returns it to the client. The public key is available at "
+                "audience, and returns it to the caller. The public key is available at "
                 "the JWKS endpoint for verification."
             ),
             outcome="ok",
+            # The token is issued only because the final gating check passed.
+            refs=[last_gate_seq],
             http=HttpExchange(
                 request=HttpMessage(method="POST", url=self.env.token_url),
                 response=HttpMessage(
@@ -412,7 +546,7 @@ class AuthServerImpl(AuthServer):
                 ),
                 highlight=["response.body.access_token", "response.body.token_type"],
                 source_actor="auth_server",
-                target_actor="client",
+                target_actor=peer,
             ),
             knowledge_delta={
                 "auth_server": KnowledgeState(has=["access_token"]),

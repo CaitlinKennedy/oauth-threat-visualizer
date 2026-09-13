@@ -39,26 +39,66 @@ PRESETS: List[Dict[str, Any]] = [
         "flow": 2,
         "name": "Auth-code injection (no mitigation)",
         "tagline": "What does the attacker see and do?",
-        "description": "The attacker injects a stolen code and wins. Arrives in Phase 1.",
+        "description": (
+            "The attacker captures the victim's authorization code from the front "
+            "channel and redeems it at the token endpoint. With no PKCE, a valid code "
+            "is all that is required — the attacker obtains a token for the victim."
+        ),
         "config": {
             "grant": "authorization_code",
             "capabilities": {"pkce": {"active": False}},
             "attacks": {"auth_code_injection": {"active": True, "params": {}}},
         },
-        "available": False,
+        "available": True,
     },
     {
         "id": "injection_pkce",
         "flow": 3,
         "name": "Auth-code injection defeated by PKCE",
         "tagline": "Why is this mitigation required?",
-        "description": "The same attack now fails at the verifier check. Arrives in Phase 1.",
+        "description": (
+            "The identical attack now fails: the attacker holds the code but not the "
+            "code_verifier, so the S256 check at the token endpoint rejects the "
+            "exchange. This is why OAuth 2.1 makes PKCE mandatory."
+        ),
         "config": {
             "grant": "authorization_code",
             "capabilities": {"pkce": {"active": True, "params": {"method": "S256"}}},
             "attacks": {"auth_code_injection": {"active": True, "params": {}}},
         },
-        "available": False,
+        "available": True,
+    },
+    {
+        # The primary gesture (DESIGN.md §8): flip PKCE and watch flow 2 and flow 3
+        # stay identical until they diverge at the verifier check. Carries the two
+        # configs so the UI can drive the paired-diff endpoint directly.
+        "id": "injection_pkce_compare",
+        "flow": 3,
+        "mode": "compare",
+        "name": "Flip PKCE: injection blocked vs. not",
+        "tagline": "Watch the one step where PKCE decides the outcome.",
+        "description": (
+            "Runs the same auth-code injection with PKCE off and PKCE on, side by "
+            "side, and marks the single step where the two runs diverge."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {"pkce": {"active": True, "params": {"method": "S256"}}},
+            "attacks": {"auth_code_injection": {"active": True, "params": {}}},
+        },
+        "compare": {
+            "baseline": {
+                "grant": "authorization_code",
+                "capabilities": {"pkce": {"active": False}},
+                "attacks": {"auth_code_injection": {"active": True, "params": {}}},
+            },
+            "variant": {
+                "grant": "authorization_code",
+                "capabilities": {"pkce": {"active": True, "params": {"method": "S256"}}},
+                "attacks": {"auth_code_injection": {"active": True, "params": {}}},
+            },
+        },
+        "available": True,
     },
 ]
 

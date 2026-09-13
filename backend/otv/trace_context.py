@@ -30,10 +30,20 @@ from typing import Iterator, Optional
 
 @dataclass(frozen=True)
 class TraceFrame:
-    """The ambient correlation facts in scope for the current actor call."""
+    """The ambient correlation facts in scope for the current actor call.
+
+    ``source_actor`` is the peer that originated the inbound request an actor is
+    handling — in a real REST deployment this is the TCP/authenticated peer, i.e.
+    ambient request scope, not a protocol field. An endpoint (e.g. the token
+    endpoint) reads it to stamp the ``source_actor`` of the receive step, so the
+    same ``AuthServer.token(request)`` serves the honest client and the attacker
+    without the caller identity crossing the pure-protocol interface. ``None``
+    means "the default legitimate client" so the happy path is unchanged.
+    """
 
     on_behalf_of: str = "user"
     actor_instance: Optional[str] = None
+    source_actor: Optional[str] = None
 
 
 _current: contextvars.ContextVar[Optional[TraceFrame]] = contextvars.ContextVar(
@@ -43,15 +53,24 @@ _current: contextvars.ContextVar[Optional[TraceFrame]] = contextvars.ContextVar(
 
 @contextmanager
 def acting(
-    *, on_behalf_of: str = "user", actor_instance: Optional[str] = None
+    *,
+    on_behalf_of: str = "user",
+    actor_instance: Optional[str] = None,
+    source_actor: Optional[str] = None,
 ) -> Iterator[None]:
     """Scope the ambient trace frame for the duration of an actor interaction.
 
     Frames nest: a chained-attack stage can enter ``acting(on_behalf_of=...)``
-    inside another, and the previous frame is restored on exit.
+    inside another, and the previous frame is restored on exit. ``source_actor``
+    names the peer that originated the request being handled (e.g. ``"attacker"``
+    for an injected token redemption); leave it unset for the honest client.
     """
     token = _current.set(
-        TraceFrame(on_behalf_of=on_behalf_of, actor_instance=actor_instance)
+        TraceFrame(
+            on_behalf_of=on_behalf_of,
+            actor_instance=actor_instance,
+            source_actor=source_actor,
+        )
     )
     try:
         yield
@@ -70,3 +89,8 @@ def current_on_behalf_of() -> str:
 
 def current_actor_instance() -> Optional[str]:
     return current_frame().actor_instance
+
+
+def current_source_actor() -> Optional[str]:
+    """The peer originating the current inbound request, or ``None`` if unset."""
+    return current_frame().source_actor
