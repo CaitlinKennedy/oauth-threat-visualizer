@@ -176,6 +176,9 @@ emit the *same* contract, so the UI cannot tell them apart.
 - **Playback** — step (Next/Prev, scrub) or one-click video mode.
 - **Glossary tooltips** for `code_challenge`, `redirect_uri`, `bearer`, and similar;
   pass/fail is never conveyed by color alone; keyboard step-through is supported.
+- The visual design of this view was iterated after the first build (landing screen,
+  collapsed command bar, two-column stage, "Paper & ink" palette); the trace-driven
+  behavior above is unchanged.
 
 ## 9. Demo mode & self-containment
 
