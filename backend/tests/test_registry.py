@@ -31,12 +31,41 @@ def test_catalog_serializes_with_required_metadata():
             "default_active",
             "params",
             "incompatibilities",
+            "applies_to_grants",
+            "implies",
+            "forbids",
             "available",
         ):
             assert key in item, f"catalog item missing {key}"
         assert item["spec_ref"]["rfc"] and item["spec_ref"]["section"]
+        for list_key in ("applies_to_grants", "implies", "forbids"):
+            assert isinstance(item[list_key], list)
     ids = {i["id"] for i in cat["capabilities"]}
     assert {"pkce", "state", "dpop"} <= ids
+
+
+def test_catalog_phase_numbers_match_the_roadmap():
+    cat = registry.to_catalog_dict()
+    by_id = {i["id"]: i for i in [*cat["capabilities"], *cat["attacks"]]}
+    expected = {
+        "pkce": 1,
+        "auth_code_injection": 1,
+        "state": 2,
+        "code_token_replay": 2,
+        "static_secret_leak": 5,
+        "dpop": 6,
+        "issuer_id": 7,
+        "phish_then_inject": 7,
+    }
+    for fid, phase in expected.items():
+        assert by_id[fid]["phase"] == phase, f"{fid} phase should be {phase}"
+
+
+def test_applies_to_grants_populated_sensibly():
+    by_id = {i.id: i for i in [*registry.CAPABILITIES, *registry.ATTACKS]}
+    assert by_id["pkce"].applies_to_grants == ["authorization_code"]
+    assert by_id["state"].applies_to_grants == ["authorization_code"]
+    assert by_id["dpop"].applies_to_grants == []  # applies broadly
 
 
 def test_no_feature_is_available_in_phase_0():
