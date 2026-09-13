@@ -120,9 +120,15 @@ def verify_access_token(
     """Verify a JWT against a JWKS, enforcing signature, ``exp``, ``iss``, ``aud``.
 
     Raises a ``jwt.PyJWTError`` subclass on any failure (bad signature, expired,
-    wrong issuer/audience, unknown ``kid``). Returns the decoded claims on success.
+    not-yet-valid, wrong issuer/audience, unknown ``kid``, or wrong token type).
+    Returns the decoded claims on success.
+
+    Enforces RFC 9068 §4: the JWS header ``typ`` must declare an access token
+    (``at+jwt``, or the media-type form ``application/at+jwt``), so a JWT the same
+    AS key signed for another purpose (e.g. an ID token) cannot be replayed here.
     """
     header = jwt.get_unverified_header(token)
+    _require_access_token_typ(header.get("typ"))
     kid = header.get("kid")
     signing_key = _select_jwk(jwks, kid)
     public_key = jwt.PyJWK.from_dict(signing_key).key
@@ -132,8 +138,19 @@ def verify_access_token(
         algorithms=[_ALG],
         audience=audience,
         issuer=issuer,
-        options={"require": ["exp", "iat", "iss", "aud"]},
+        options={"require": ["exp", "iat", "nbf", "iss", "aud"]},
     )
+
+
+def _require_access_token_typ(typ: Any) -> None:
+    """Reject a JWT whose header ``typ`` is not an access token (RFC 9068 §4)."""
+    normalized = str(typ or "").strip().lower()
+    if normalized.startswith("application/"):
+        normalized = normalized[len("application/") :]
+    if normalized != "at+jwt":
+        raise jwt.InvalidTokenError(
+            f"unexpected token typ {typ!r}; expected at+jwt (RFC 9068 §4)"
+        )
 
 
 def decode_claims_unverified(token: str) -> Dict[str, Any]:

@@ -2,10 +2,12 @@
 
 Exposed as a documented service-API interface (:class:`Client`) whose public
 methods are named for the RP's real actions; :class:`ClientImpl` hides the
-detail. Callers depend only on the interface, and the client reaches the
-authorization and resource servers only through *their* interfaces — so
-promoting any actor to a standalone REST service later is a transport swap, not
-a change to callers or the contract.
+detail. The interface is pure protocol — methods take only domain arguments;
+correlation metadata (``on_behalf_of``, causal ``refs``) is captured out-of-band
+via the ambient trace context, and the client remembers the ``seq`` of its own
+prior events internally rather than receiving them across the seam. So promoting
+any actor to a standalone REST service later is a transport swap, not a change to
+callers or the contract.
 
 Phase 0 is a confidential client with no PKCE (added in Phase 1).
 """
@@ -13,10 +15,10 @@ Phase 0 is a confidential client with no PKCE (added in Phase 1).
 from __future__ import annotations
 
 import abc
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .. import crypto
-from ..contract import HttpExchange, HttpMessage, KnowledgeState, SpecRef
+from ..contract import Check, HttpExchange, HttpMessage, KnowledgeState, SpecRef
 from ..recorder import Recorder
 from .auth_server import AuthServer
 from .environment import Environment
@@ -27,7 +29,7 @@ class Client(abc.ABC):
     """Service-API interface for the relying party."""
 
     @abc.abstractmethod
-    def start_authorization(self, *, on_behalf_of: str = "user") -> Dict[str, Any]:
+    def start_authorization(self) -> Dict[str, Any]:
         """Begin the authorization-code flow.
 
         Builds the authorization request and records the step. Returns
@@ -35,23 +37,15 @@ class Client(abc.ABC):
         """
 
     @abc.abstractmethod
-    def receive_redirect(
-        self, redirect: Dict[str, Any], *, request_seq: int, on_behalf_of: str = "user"
-    ) -> Dict[str, Any]:
+    def receive_redirect(self, redirect: Dict[str, Any]) -> Dict[str, Any]:
         """Handle the authorization response redirect and validate ``state``.
 
-        Returns ``{"code": <authorization code>, "seq": <event seq>}``.
+        Returns ``{"code": <authorization code>, "state_ok": bool,
+        "seq": <event seq>}``.
         """
 
     @abc.abstractmethod
-    def exchange_code(
-        self,
-        code: str,
-        *,
-        redirect_seq: int,
-        auth_server: "AuthServer",
-        on_behalf_of: str = "user",
-    ) -> Dict[str, Any]:
+    def exchange_code(self, code: str, *, auth_server: "AuthServer") -> Dict[str, Any]:
         """Redeem the code at the authorization server's token endpoint.
 
         Performs the real back-channel exchange via the ``AuthServer`` interface
@@ -60,13 +54,7 @@ class Client(abc.ABC):
         """
 
     @abc.abstractmethod
-    def access_resource(
-        self,
-        *,
-        token_seq: int,
-        resource_server: "ResourceServer",
-        on_behalf_of: str = "user",
-    ) -> Dict[str, Any]:
+    def access_resource(self, *, resource_server: "ResourceServer") -> Dict[str, Any]:
         """Call the protected resource with the stored access token.
 
         Returns ``{"ok": bool, "resource": {...} | None, "seq": <event seq>}``.
@@ -81,9 +69,13 @@ class ClientImpl(Client):
         # response to the session) is exercised fully in a later phase; the
         # client already generates and echoes it here.
         self.state = crypto.new_opaque_token(prefix="st_")
-        self._access_token: str | None = None
+        self._access_token: Optional[str] = None
+        # The seq of this client's own authorization request, remembered so the
+        # redirect-receipt step can causally reference it without the seq being
+        # passed across the interface.
+        self._request_seq: Optional[int] = None
 
-    def start_authorization(self, *, on_behalf_of: str = "user") -> Dict[str, Any]:
+    def start_authorization(self) -> Dict[str, Any]:
         client = self.env.client
         params = {
             "response_type": "code",
@@ -94,7 +86,6 @@ class ClientImpl(Client):
         }
         seq = self.recorder.emit(
             actor="client",
-            on_behalf_of=on_behalf_of,
             phase="authorize",
             summary="Client starts the authorization-code flow.",
             detail=(
@@ -111,56 +102,72 @@ class ClientImpl(Client):
                     body=params,
                 ),
                 response=HttpMessage(status=302, body={"redirecting_to": "authorization_server"}),
-                highlight=["response_type", "state"],
+                highlight=["request.body.response_type", "request.body.state"],
+                source_actor="client",
+                target_actor="auth_server",
             ),
             knowledge_delta={
                 "client": KnowledgeState(has=["state", "redirect_uri", "client_credentials"]),
             },
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.1")],
         )
+        self._request_seq = seq
         return {"params": params, "seq": seq}
 
-    def receive_redirect(
-        self, redirect: Dict[str, Any], *, request_seq: int, on_behalf_of: str = "user"
-    ) -> Dict[str, Any]:
+    def receive_redirect(self, redirect: Dict[str, Any]) -> Dict[str, Any]:
         code = redirect["code"]
         returned_state = redirect.get("state")
         state_ok = returned_state == self.state
+        detail = (
+            "The browser lands back on the client's redirect URI carrying the code "
+            "and the echoed 'state'. "
+            + (
+                "The client confirms the 'state' matches the one it generated, so the "
+                "response belongs to the session it started."
+                if state_ok
+                else "The returned 'state' does NOT match the one the client generated — "
+                "the response cannot be tied to the session that started the flow, which "
+                "is the signature of CSRF or a cross-session code injection."
+            )
+        )
         seq = self.recorder.emit(
             actor="client",
-            on_behalf_of=on_behalf_of,
             phase="redirect",
             summary="Client receives the authorization code on its redirect URI.",
-            detail=(
-                "The browser lands back on the client's redirect URI carrying the code "
-                "and the echoed 'state'. The client confirms the 'state' matches the one "
-                "it generated, so the response belongs to the session it started."
-            ),
-            outcome="ok",
-            refs=[request_seq],
+            detail=detail,
+            # Honest outcome: a state mismatch is not an "ok" step. (Hard rejection
+            # when the 'state' capability is enforced arrives in a later phase; here
+            # the check result is reported truthfully rather than misrepresented.)
+            outcome="ok" if state_ok else "blocked",
+            # Non-linear causal anchor: this depends on the client's own original
+            # request, remembered internally rather than passed across the seam.
+            refs=[self._request_seq] if self._request_seq is not None else [],
             http=HttpExchange(
                 request=HttpMessage(
                     method="GET",
                     url=f"{self.env.client.redirect_uri}?code={code}&state={returned_state}",
                 ),
                 response=HttpMessage(status=200, body={"state_valid": state_ok}),
-                highlight=["code", "state"],
+                highlight=["response.body.state_valid"],
+                source_actor="client",
+                target_actor="client",
+            ),
+            check=Check(
+                name="state_matches_session",
+                rule="returned state == state the client generated",
+                expected=self.state,
+                actual=returned_state if returned_state is not None else "(absent)",
+                result="PASS" if state_ok else "FAIL",
+                spec_ref=SpecRef(rfc="RFC 6749", section="§10.12"),
             ),
             knowledge_delta={
                 "client": KnowledgeState(has=["authorization_code"]),
             },
             spec_refs=[SpecRef(rfc="RFC 6749", section="§4.1.2")],
         )
-        return {"code": code, "seq": seq}
+        return {"code": code, "state_ok": state_ok, "seq": seq}
 
-    def exchange_code(
-        self,
-        code: str,
-        *,
-        redirect_seq: int,
-        auth_server: "AuthServer",
-        on_behalf_of: str = "user",
-    ) -> Dict[str, Any]:
+    def exchange_code(self, code: str, *, auth_server: "AuthServer") -> Dict[str, Any]:
         client = self.env.client
         token_request = {
             "grant_type": "authorization_code",
@@ -169,15 +176,12 @@ class ClientImpl(Client):
             "client_id": client.client_id,
             "client_secret": client.client_secret,
         }
-        # Real back-channel call through the AuthServer *interface*.
-        token_response = auth_server.token(
-            token_request, on_behalf_of=on_behalf_of, refs=[redirect_seq]
-        )
+        # Real back-channel call through the AuthServer *interface* (pure protocol:
+        # no trace-plumbing crosses the seam).
+        token_response = auth_server.token(token_request)
         self._access_token = token_response["access_token"]
-        token_endpoint_seq = self.recorder.last_seq
         seq = self.recorder.emit(
             actor="client",
-            on_behalf_of=on_behalf_of,
             phase="token",
             summary="Client receives and stores the access token.",
             detail=(
@@ -186,7 +190,6 @@ class ClientImpl(Client):
                 "the user's behalf."
             ),
             outcome="ok",
-            refs=[token_endpoint_seq],
             knowledge_delta={
                 "client": KnowledgeState(has=["access_token"]),
             },
@@ -194,13 +197,7 @@ class ClientImpl(Client):
         )
         return {"token_response": token_response, "seq": seq}
 
-    def access_resource(
-        self,
-        *,
-        token_seq: int,
-        resource_server: "ResourceServer",
-        on_behalf_of: str = "user",
-    ) -> Dict[str, Any]:
+    def access_resource(self, *, resource_server: "ResourceServer") -> Dict[str, Any]:
         if self._access_token is None:
             raise RuntimeError("access_resource called before a token was obtained")
         request = {
@@ -208,6 +205,4 @@ class ClientImpl(Client):
             "headers": {"Authorization": f"Bearer {self._access_token}"},
         }
         # Real call through the ResourceServer *interface*.
-        return resource_server.get_resource(
-            request, refs=[token_seq], on_behalf_of=on_behalf_of
-        )
+        return resource_server.get_resource(request)

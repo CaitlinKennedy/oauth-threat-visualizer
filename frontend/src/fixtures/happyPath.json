@@ -1,5 +1,5 @@
 {
-  "correlation_id": "run_cG469uJ6SBOQFE_G1cP7ZDn5rxs9A0QMiyM4TQkwAf8",
+  "correlation_id": "run_nHX7e3ALRjKWH_SWPKy1j6nNqcXJWUl5l4Q1b-LVkew",
   "config": {
     "grant": "authorization_code",
     "capabilities": {},
@@ -9,7 +9,8 @@
     "attacker_got_token": false,
     "user_got_token": true,
     "user_accessed_resource": true,
-    "one_line": "User obtained an access token: YES \u2014 the client completed the authorization-code flow and the resource server honored the token. Attacker obtained an access token: NO \u2014 no attack was attempted."
+    "one_line": "User obtained an access token: YES \u2014 the client completed the authorization-code flow and the resource server honored the token. Attacker obtained an access token: NO \u2014 no attack was attempted.",
+    "responsible_capabilities": []
   },
   "events": [
     {
@@ -31,7 +32,7 @@
             "client_id": "demo-web-app",
             "redirect_uri": "https://app.oauthlab.internal/callback",
             "scope": "profile email",
-            "state": "st_yKfZfZdFRSCM-dE31Ppf8E1FvW5E_EGCrInhZuxXhxg"
+            "state": "st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg"
           }
         },
         "response": {
@@ -42,9 +43,11 @@
           }
         },
         "highlight": [
-          "response_type",
-          "state"
-        ]
+          "request.body.response_type",
+          "request.body.state"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
       },
       "knowledge_delta": {
         "client": {
@@ -86,7 +89,7 @@
             "client_id": "demo-web-app",
             "redirect_uri": "https://app.oauthlab.internal/callback",
             "scope": "profile email",
-            "state": "st_yKfZfZdFRSCM-dE31Ppf8E1FvW5E_EGCrInhZuxXhxg"
+            "state": "st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg"
           }
         },
         "response": {
@@ -97,10 +100,12 @@
           }
         },
         "highlight": [
-          "client_id",
-          "redirect_uri",
-          "response_type"
-        ]
+          "request.body.client_id",
+          "request.body.redirect_uri",
+          "request.body.response_type"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
       },
       "knowledge_delta": {},
       "spec_refs": [
@@ -115,11 +120,41 @@
       "actor": "auth_server",
       "on_behalf_of": "user",
       "phase": "authorize",
+      "summary": "Authorization server checks client registration and redirect URI.",
+      "detail": "The server confirms the client_id is registered and that the requested redirect URI exactly matches one registered for that client, so the code can only be delivered to the client's own endpoint.",
+      "outcome": "ok",
+      "refs": [
+        2
+      ],
+      "check": {
+        "name": "redirect_uri_registered",
+        "rule": "client_id is registered AND redirect_uri exactly matches a registered URI",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a73.1.2"
+        },
+        "expected": "registered client + exact redirect_uri match",
+        "actual": "registered client + exact match"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a73.1.2"
+        }
+      ]
+    },
+    {
+      "seq": 4,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "authorize",
       "summary": "User authenticates and consents to the requested scope.",
       "detail": "The synthetic user 'avery' logs in and approves the client's request for scope 'profile email'. No real credentials or PII are involved; the account is bundled with the tool.",
       "outcome": "ok",
       "refs": [
-        2
+        3
       ],
       "http": {
         "request": {
@@ -140,8 +175,10 @@
           }
         },
         "highlight": [
-          "consent"
-        ]
+          "request.body.consent"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "auth_server"
       },
       "knowledge_delta": {
         "auth_server": {
@@ -160,7 +197,7 @@
       ]
     },
     {
-      "seq": 4,
+      "seq": 5,
       "actor": "auth_server",
       "on_behalf_of": "user",
       "phase": "redirect",
@@ -168,7 +205,7 @@
       "detail": "The server issues a short-lived, single-use authorization code and redirects the browser to the client's registered redirect URI, echoing the 'state' value unchanged. The code is bound server-side to this client and redirect URI; it is not itself a token.",
       "outcome": "ok",
       "refs": [
-        3
+        4
       ],
       "http": {
         "request": {
@@ -179,17 +216,19 @@
         "response": {
           "status": 302,
           "headers": {
-            "Location": "https://app.oauthlab.internal/callback?code=ac_nA3mtmk8QKSqggFFQZYB-BDcn-Xv-Uv_mh7fEMODL4I&state=st_yKfZfZdFRSCM-dE31Ppf8E1FvW5E_EGCrInhZuxXhxg"
+            "Location": "https://app.oauthlab.internal/callback?code=ac_NKH-8URNTLCWa24Vfh0EcJJ8eDpijUaBrlpnKJeLIyg&state=st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg"
           },
           "body": {
-            "code": "ac_nA3mtmk8QKSqggFFQZYB-BDcn-Xv-Uv_mh7fEMODL4I",
-            "state": "st_yKfZfZdFRSCM-dE31Ppf8E1FvW5E_EGCrInhZuxXhxg"
+            "code": "ac_NKH-8URNTLCWa24Vfh0EcJJ8eDpijUaBrlpnKJeLIyg",
+            "state": "st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg"
           }
         },
         "highlight": [
-          "code",
-          "state"
-        ]
+          "response.body.code",
+          "response.body.state"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "client"
       },
       "knowledge_delta": {
         "auth_server": {
@@ -207,7 +246,7 @@
       ]
     },
     {
-      "seq": 5,
+      "seq": 6,
       "actor": "client",
       "on_behalf_of": "user",
       "phase": "redirect",
@@ -220,7 +259,7 @@
       "http": {
         "request": {
           "method": "GET",
-          "url": "https://app.oauthlab.internal/callback?code=ac_nA3mtmk8QKSqggFFQZYB-BDcn-Xv-Uv_mh7fEMODL4I&state=st_yKfZfZdFRSCM-dE31Ppf8E1FvW5E_EGCrInhZuxXhxg",
+          "url": "https://app.oauthlab.internal/callback?code=ac_NKH-8URNTLCWa24Vfh0EcJJ8eDpijUaBrlpnKJeLIyg&state=st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg",
           "headers": {}
         },
         "response": {
@@ -231,9 +270,21 @@
           }
         },
         "highlight": [
-          "code",
-          "state"
-        ]
+          "response.body.state_valid"
+        ],
+        "source_actor": "client",
+        "target_actor": "client"
+      },
+      "check": {
+        "name": "state_matches_session",
+        "rule": "returned state == state the client generated",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a710.12"
+        },
+        "expected": "st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg",
+        "actual": "st_-lWmplIRRLuI0JLif4a8mtIloiOjkEOwmO8354bf5cg"
       },
       "knowledge_delta": {
         "client": {
@@ -251,7 +302,7 @@
       ]
     },
     {
-      "seq": 6,
+      "seq": 7,
       "actor": "auth_server",
       "on_behalf_of": "user",
       "phase": "token",
@@ -259,7 +310,7 @@
       "detail": "The client presents the authorization code over the back channel and authenticates itself with its client credentials. The server will now verify the client, then redeem the code.",
       "outcome": "ok",
       "refs": [
-        5
+        6
       ],
       "http": {
         "request": {
@@ -270,7 +321,7 @@
           },
           "body": {
             "grant_type": "authorization_code",
-            "code": "ac_nA3mtmk8QKSqggFFQZYB-BDcn-Xv-Uv_mh7fEMODL4I",
+            "code": "ac_NKH-8URNTLCWa24Vfh0EcJJ8eDpijUaBrlpnKJeLIyg",
             "redirect_uri": "https://app.oauthlab.internal/callback",
             "client_id": "demo-web-app",
             "client_secret": "s3c\u2026(redacted)"
@@ -284,9 +335,11 @@
           }
         },
         "highlight": [
-          "code",
-          "grant_type"
-        ]
+          "request.body.code",
+          "request.body.grant_type"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
       },
       "knowledge_delta": {},
       "spec_refs": [
@@ -297,7 +350,37 @@
       ]
     },
     {
-      "seq": 7,
+      "seq": 8,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Token endpoint authenticates the confidential client.",
+      "detail": "The server checks the client's credentials at the token endpoint. Only a client that authenticates as the one the code was issued to may redeem it over the back channel.",
+      "outcome": "ok",
+      "refs": [
+        7
+      ],
+      "check": {
+        "name": "client_authentication",
+        "rule": "presented client_id + client_secret match the registered client",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a72.3.1"
+        },
+        "expected": "valid client credentials",
+        "actual": "authenticated"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a72.3.1"
+        }
+      ]
+    },
+    {
+      "seq": 9,
       "actor": "auth_server",
       "on_behalf_of": "user",
       "phase": "token",
@@ -305,7 +388,7 @@
       "detail": "The server looks up the code, confirms it exists and has not been redeemed before, and marks it used. A code that is missing or already redeemed is rejected \u2014 this is what makes a captured code single-use.",
       "outcome": "ok",
       "refs": [
-        6
+        8
       ],
       "check": {
         "name": "authorization_code_single_use",
@@ -327,7 +410,37 @@
       ]
     },
     {
-      "seq": 8,
+      "seq": 10,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Authorization code binding is verified (client + redirect URI).",
+      "detail": "The server confirms the code was issued to this client and for this redirect URI. A code captured by a different client, or presented with a different redirect URI, is rejected here.",
+      "outcome": "ok",
+      "refs": [
+        9
+      ],
+      "check": {
+        "name": "authorization_code_binding",
+        "rule": "stored.client_id == client_id AND stored.redirect_uri == redirect_uri",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.3"
+        },
+        "expected": "code bound to this client and redirect_uri",
+        "actual": "binding matches"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.3"
+        }
+      ]
+    },
+    {
+      "seq": 11,
       "actor": "auth_server",
       "on_behalf_of": "user",
       "phase": "token",
@@ -335,7 +448,7 @@
       "detail": "The code is valid and now spent. The server signs a real RS256 JWT access token with its private key, scoped to the resource server's audience, and returns it to the client. The public key is available at the JWKS endpoint for verification.",
       "outcome": "ok",
       "refs": [
-        7
+        10
       ],
       "http": {
         "request": {
@@ -349,16 +462,18 @@
             "Content-Type": "application/json"
           },
           "body": {
-            "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJ1c2VyLThmMzFjMiIsImF1ZCI6Imh0dHBzOi8vYXBpLm9hdXRobGFiLmludGVybmFsIiwiY2xpZW50X2lkIjoiZGVtby13ZWItYXBwIiwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwiaWF0IjoxNzg5MzMyMjI4LCJuYmYiOjE3ODkzMzIyMjgsImV4cCI6MTc4OTMzMjUyOCwianRpIjoiMzNlYjE4NTU3M2QwNGFkYjk3ZTM2OWFjYTM3NWQ1MzUifQ.g6YTlI-_bJ2UyAMxdOqPIlbsl2KbNZG1zKtADn4_zdX5Gl2KoESHGXgROLaQbXWFiWqTdwouMPOpl_JSMCBuve6yfv2cQBNz9fASD-5nPU5w1dSBp_OWcv9LEiReUay1GbgG00hvf0VY5rxm4Z3kCln1cFCU4iyLsWe-ULCiG-PyjILzZXa3cDqTJRLavcl5QuOx6aDyP1dkYvOAQK7v8bASzdWnHD0fDcFpitIEI49rcjBPWWusmPrb1_VzUhksS3UySexFdegmPI4s5RafLHR-6Y0xQcQp09qpAtT8a4kdJZ1fc4Zz1AppFkLkiMZLb3TOzBXKB-9d7bhRUXzt2Q",
+            "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJ1c2VyLThmMzFjMiIsImF1ZCI6Imh0dHBzOi8vYXBpLm9hdXRobGFiLmludGVybmFsIiwiY2xpZW50X2lkIjoiZGVtby13ZWItYXBwIiwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwiaWF0IjoxNzg5MzM1MjEzLCJuYmYiOjE3ODkzMzUyMTMsImV4cCI6MTc4OTMzNTUxMywianRpIjoiZGZkYzFiMmYzMjU0NDA1NjliNmIwMDM0NDdlNzkzMzMifQ.ia-M3-qD_JcdKlrdhO3EQK20LTRDDFTCpDg_BhGCPgyPWj73Ydukm_WiHKJxptqqXZbePD2nq5Kl4WK5l98uoKE1eSstI83sf9OpveK4Pl4IsThu1_Z62rYBUbiWI_ettfryXcfJs14PV-xl3Bh9eMw2tPWMnYQMnTOS5_MBKw2o-vDWrUsELDuPtlSI-o3-jCduccuR-JmSdUOo8OpRGcI-9hsemlMi6Xm1aJCEJAYBQY4HGnCW_Y3ccJ_xHT1dsU4dpHjXOyk2KZ24s33zACNKjnl-0wcZBoQ3WaiTB5ssO_htKuf-zdzdRy6DVKMZLOlXt1SZhaVPiRQcAZjHjw",
             "token_type": "Bearer",
             "expires_in": 300,
             "scope": "profile email"
           }
         },
         "highlight": [
-          "access_token",
-          "token_type"
-        ]
+          "response.body.access_token",
+          "response.body.token_type"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "client"
       },
       "knowledge_delta": {
         "auth_server": {
@@ -376,7 +491,7 @@
       ]
     },
     {
-      "seq": 9,
+      "seq": 12,
       "actor": "client",
       "on_behalf_of": "user",
       "phase": "token",
@@ -384,7 +499,7 @@
       "detail": "The token exchange succeeds. The client now holds a signed, audience-scoped access token it can present to the resource server on the user's behalf.",
       "outcome": "ok",
       "refs": [
-        8
+        11
       ],
       "knowledge_delta": {
         "client": {
@@ -402,15 +517,15 @@
       ]
     },
     {
-      "seq": 10,
+      "seq": 13,
       "actor": "resource_server",
       "on_behalf_of": "user",
       "phase": "resource",
       "summary": "Resource server validates the access token.",
-      "detail": "The resource server verifies the JWT's signature against the authorization server's published JWKS and checks the expiry, issuer, and audience. Only a token that passes every check is honored.",
+      "detail": "The resource server verifies the JWT's signature against the authorization server's published JWKS and checks the expiry, issuer, audience, and token type (typ=at+jwt). Only a token that passes every check is honored.",
       "outcome": "ok",
       "refs": [
-        9
+        12
       ],
       "http": {
         "request": {
@@ -428,18 +543,20 @@
           }
         },
         "highlight": [
-          "Authorization"
-        ]
+          "request.headers.Authorization"
+        ],
+        "source_actor": "client",
+        "target_actor": "resource_server"
       },
       "check": {
         "name": "access_token_validation",
-        "rule": "verify JWS signature via JWKS AND check exp/iss/aud",
+        "rule": "verify JWS signature via JWKS AND check exp/iss/aud/typ",
         "result": "PASS",
         "spec_ref": {
           "rfc": "RFC 9068",
           "section": "\u00a74"
         },
-        "expected": "valid signature, unexpired, aud=resource server",
+        "expected": "valid signature, unexpired, aud=resource server, typ=at+jwt",
         "actual": "all checks passed"
       },
       "knowledge_delta": {
@@ -462,7 +579,7 @@
       ]
     },
     {
-      "seq": 11,
+      "seq": 14,
       "actor": "resource_server",
       "on_behalf_of": "user",
       "phase": "resource",
@@ -470,7 +587,7 @@
       "detail": "Token validated. The resource server returns the protected profile resource for the subject named in the token, completing the flow: the user has authorized the client and the client has accessed the API.",
       "outcome": "ok",
       "refs": [
-        10
+        13
       ],
       "http": {
         "request": {
@@ -492,9 +609,11 @@
           }
         },
         "highlight": [
-          "sub",
-          "scope"
-        ]
+          "response.body.sub",
+          "response.body.scope"
+        ],
+        "source_actor": "resource_server",
+        "target_actor": "client"
       },
       "knowledge_delta": {},
       "spec_refs": [

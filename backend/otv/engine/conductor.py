@@ -17,9 +17,10 @@ committed fixture fallback.
 
 from __future__ import annotations
 
-from .. import crypto
+from .. import crypto, registry
 from ..contract import ScenarioConfig, Trace, Verdict, validate
 from ..recorder import Recorder
+from ..trace_context import acting
 from ..actors.attacker import Attacker, AttackerImpl
 from ..actors.auth_server import AuthServer, AuthServerImpl
 from ..actors.client import Client, ClientImpl
@@ -35,12 +36,32 @@ def run(config: ScenarioConfig) -> Trace:
     """Execute ``config`` and return a validated :class:`Trace`."""
     if config.grant != "authorization_code":
         raise UnsupportedScenario(f"grant {config.grant!r} is not implemented yet")
-    if config.active_attacks():
-        raise UnsupportedScenario("attacks are not implemented until Phase 1")
+    _reject_unavailable_features(config)
 
     trace = _run_happy_path(config)
     validate(trace)  # guard: never hand the UI a trace that breaks the contract
     return trace
+
+
+def _reject_unavailable_features(config: ScenarioConfig) -> None:
+    """Reject any active capability/attack that this build does not implement.
+
+    Prevents config and trace from disagreeing: if a caller turns on a feature the
+    registry marks not-yet-available, we refuse the run rather than silently
+    ignore the toggle and emit a trace that contradicts the requested config.
+    """
+    for kind, active in (
+        ("capability", config.active_capabilities()),
+        ("attack", config.active_attacks()),
+    ):
+        for fid in active:
+            item = registry.get(fid)
+            if item is None:
+                raise UnsupportedScenario(f"unknown {kind} {fid!r}")
+            if not item.available:
+                raise UnsupportedScenario(
+                    f"{kind} {fid!r} is not implemented until phase {item.phase}"
+                )
 
 
 def _run_happy_path(config: ScenarioConfig) -> Trace:
@@ -48,43 +69,37 @@ def _run_happy_path(config: ScenarioConfig) -> Trace:
     recorder = Recorder(correlation_id, config)
     env = Environment()
 
-    # Construct the concrete impls, but bind callers to the interfaces.
+    # Construct the concrete impls, but bind callers to the interfaces. The
+    # resource server is given only role-scoped facts (issuer, audience, its own
+    # profile store) — no client secret, no registered-client table (see B2).
     client: Client = ClientImpl(recorder, env)
     auth_server: AuthServer = AuthServerImpl(recorder, env)
-    resource_server: ResourceServer = ResourceServerImpl(recorder, env, auth_server)
+    resource_server: ResourceServer = ResourceServerImpl(
+        recorder, env.resource_server_config(), auth_server
+    )
     attacker: Attacker = AttackerImpl(recorder, env)
     assert not attacker.is_active()  # present but idle this phase
 
-    # 1) Client begins the authorization-code flow.
-    started = client.start_authorization(on_behalf_of="user")
+    # Every step in the happy path serves the honest user. Correlation metadata is
+    # supplied by the ambient trace context, not threaded across the interfaces.
+    with acting(on_behalf_of="user"):
+        # 1) Client begins the authorization-code flow.
+        started = client.start_authorization()
 
-    # 2) Authorization server authenticates the user and redirects with a code.
-    redirect = auth_server.authorize(
-        started["params"], on_behalf_of="user", refs=[started["seq"]]
-    )
+        # 2) Authorization server authenticates the user and redirects with a code.
+        redirect = auth_server.authorize(started["params"])
 
-    # 3) Client receives the redirect and validates state.
-    received = client.receive_redirect(
-        redirect, request_seq=started["seq"], on_behalf_of="user"
-    )
+        # 3) Client receives the redirect and validates state.
+        received = client.receive_redirect(redirect)
 
-    # 4) Client exchanges the code for a token over the back channel (via the AS
-    #    interface).
-    exchanged = client.exchange_code(
-        received["code"],
-        redirect_seq=received["seq"],
-        auth_server=auth_server,
-        on_behalf_of="user",
-    )
-    token_response = exchanged["token_response"]
+        # 4) Client exchanges the code for a token over the back channel (via the
+        #    AS interface).
+        exchanged = client.exchange_code(received["code"], auth_server=auth_server)
+        token_response = exchanged["token_response"]
 
-    # 5) Client calls the resource server with the access token (via the RS
-    #    interface).
-    result = client.access_resource(
-        token_seq=exchanged["seq"],
-        resource_server=resource_server,
-        on_behalf_of="user",
-    )
+        # 5) Client calls the resource server with the access token (via the RS
+        #    interface).
+        result = client.access_resource(resource_server=resource_server)
 
     user_got_token = bool(token_response.get("access_token"))
     user_accessed_resource = bool(result["ok"])
