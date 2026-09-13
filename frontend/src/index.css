@@ -529,6 +529,19 @@ input:focus-visible,
   color: var(--ink-soft);
 }
 
+@media (max-width: 600px) {
+  .config-row {
+    flex-wrap: wrap;
+    row-gap: 3px;
+  }
+  .config-one,
+  .config-spec {
+    flex: 1 1 100%;
+    margin-left: 25px;
+    white-space: normal;
+  }
+}
+
 /* ---- Coachmarks ---- */
 .coach {
   position: absolute;
