@@ -14,14 +14,8 @@ const NODES: Record<Actor, { x: number; y: number; sub: string }> = {
 const W = 170;
 const H = 74;
 
-// Map a URL host to the actor that owns it, so the active edge is derived from
-// the real HTTP in the trace rather than hard-coded per step.
-function actorForUrl(url?: string): Actor | null {
-  if (!url) return null;
-  if (url.includes("auth.oauthlab.internal")) return "auth_server";
-  if (url.includes("api.oauthlab.internal")) return "resource_server";
-  if (url.includes("app.oauthlab.internal")) return "client";
-  return null;
+function isActor(v: string | null | undefined): v is Actor {
+  return v === "client" || v === "auth_server" || v === "resource_server" || v === "attacker";
 }
 
 function center(a: Actor) {
@@ -31,8 +25,12 @@ function center(a: Actor) {
 export function Diagram({ event }: Props) {
   const activeActor = event?.actor ?? null;
   const onBehalf = event?.on_behalf_of ?? null;
-  const target = event ? actorForUrl(event.http?.request?.url) : null;
-  const source = activeActor;
+  // The message edge is a pure function of the trace: the emitter carries the
+  // explicit source/target actor, so the UI never string-matches hostnames.
+  const src = event?.http?.source_actor ?? null;
+  const tgt = event?.http?.target_actor ?? null;
+  const source = isActor(src) ? src : null;
+  const target = isActor(tgt) ? tgt : null;
   const drawEdge = source && target && source !== target;
 
   const attackerInvolved = onBehalf === "attacker" || activeActor === "attacker";
