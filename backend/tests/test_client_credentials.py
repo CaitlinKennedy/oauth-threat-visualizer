@@ -191,6 +191,12 @@ def test_leak_compare_diverges_at_the_client_auth_check():
     first = resp.divergences[0]
     # They stay the same flow until the client-authentication step decides it.
     assert first.reason == "private_key_jwt_auth"
+    # The `capability` field must be a real catalog id — both sides have
+    # `client_auth` active, differing only by its `method` param, so an
+    # id-only diff would miss it and this would otherwise fall back to the
+    # check name (the `reason` field, which stays as-is).
+    assert first.capability == "client_auth"
+    assert registry.get(first.capability) is not None
     # And the divergence lands on a step whose check actually differs.
     b = {e.seq: e for e in resp.baseline.events}
     v = {e.seq: e for e in resp.variant.events}

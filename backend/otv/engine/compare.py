@@ -75,10 +75,25 @@ def _divergence_at(event: StepEvent, capability: str) -> Divergence:
 
 
 def _differing_capability(a: ScenarioConfig, b: ScenarioConfig) -> str:
-    """The single capability id that differs between the two configs (if any)."""
-    diff = sorted(set(a.active_capabilities()) ^ set(b.active_capabilities()))
+    """The single capability id that differs between the two configs (if any).
+
+    A capability can differ two ways: active in one config and not the other
+    (an id-level diff — PKCE, state, DPoP), or active in BOTH with different
+    params — same catalog id, different configuration (e.g. ``client_auth``'s
+    ``method``: ``client_secret_basic`` vs ``private_key_jwt``). Checking only
+    the active-id set misses the second case entirely, which left a param-only
+    compare (like the client-auth leak) with no differing id and made the
+    divergence's ``capability`` field fall back to a check name instead of a
+    real catalog id.
+    """
+    active_a = set(a.active_capabilities())
+    active_b = set(b.active_capabilities())
+    diff = sorted(active_a ^ active_b)
     if diff:
         return diff[0]
+    for cid in sorted(active_a & active_b):
+        if a.capabilities[cid].params != b.capabilities[cid].params:
+            return cid
     # Fall back to a differing attack id, else empty (callers guarantee a toggle).
     attack_diff = sorted(set(a.active_attacks()) ^ set(b.active_attacks()))
     return attack_diff[0] if attack_diff else ""
