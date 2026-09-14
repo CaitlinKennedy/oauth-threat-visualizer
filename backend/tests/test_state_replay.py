@@ -228,4 +228,4 @@ def test_existing_catalog_items_metadata_unchanged():
     by_id = {i.id: i for i in [*registry.CAPABILITIES, *registry.ATTACKS]}
     assert by_id["pkce"].applies_to_grants == ["authorization_code"]
     assert by_id["state"].applies_to_grants == ["authorization_code"]
-    assert by_id["dpop"].applies_to_grants == []
+    assert by_id["dpop"].applies_to_grants == ["authorization_code"]

@@ -16,7 +16,6 @@ attack(
     description="Reuse a captured code or token a second time.",
     spec_ref=SpecRef(rfc="RFC 6819", section="§4.4.1.1"),
     order=20,
-    # Code replay is auth-code-specific; token replay applies to any grant, so
-    # this item is not restricted to a single grant.
-    applies_to_grants=[],
+    # Replays a single-use authorization code, which only this grant issues.
+    applies_to_grants=["authorization_code"],
 )

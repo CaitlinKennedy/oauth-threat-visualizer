@@ -70,7 +70,9 @@ def test_applies_to_grants_populated_sensibly():
     by_id = {i.id: i for i in [*registry.CAPABILITIES, *registry.ATTACKS]}
     assert by_id["pkce"].applies_to_grants == ["authorization_code"]
     assert by_id["state"].applies_to_grants == ["authorization_code"]
-    assert by_id["dpop"].applies_to_grants == []  # applies broadly
+    assert by_id["dpop"].applies_to_grants == ["authorization_code"]
+    for aid in ("token_replay", "code_token_replay"):
+        assert by_id[aid].applies_to_grants == ["authorization_code"]
 
 
 def test_unknown_feature_is_rejected_by_the_conductor():

@@ -47,11 +47,22 @@ export function VerdictBanner({ trace, open, onToggle, catalogLabels = {} }: Pro
         okText="Attacker gained access: NO"
         failText="Attacker gained access: YES"
       />
-      <Badge
-        ok={v.user_got_token && v.user_accessed_resource}
-        okText="User reached the API"
-        failText="User did not complete the flow"
-      />
+      {trace.config.grant === "authorization_code" ? (
+        <Badge
+          ok={v.user_got_token && v.user_accessed_resource}
+          okText="User reached the API"
+          failText="User did not complete the flow"
+        />
+      ) : (
+        // Back-channel grants have no interactive user login: the honest party
+        // is the client, which succeeds once it holds its own access token. An
+        // attack-only run (e.g. a leaked secret) has no honest client to report.
+        trace.events.some((e) => e.actor === "client") && <Badge
+          ok={clientGotToken(trace)}
+          okText="User authenticated as client"
+          failText="Client did not authenticate"
+        />
+      )}
       <p className="verdict-line">{v.one_line}</p>
       <button
         className="verdict-why"
@@ -78,6 +89,12 @@ export function VerdictBanner({ trace, open, onToggle, catalogLabels = {} }: Pro
         </div>
       )}
     </section>
+  );
+}
+
+function clientGotToken(trace: Trace): boolean {
+  return trace.events.some((e) =>
+    e.knowledge_delta.client?.has.includes("access_token"),
   );
 }
 

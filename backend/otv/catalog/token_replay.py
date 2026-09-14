@@ -19,6 +19,8 @@ attack(
     description="Reuse a stolen access token at the resource server.",
     spec_ref=SpecRef(rfc="RFC 9449", section="§1"),
     order=60,
-    # Token replay applies to any grant that yields a bearer token.
-    applies_to_grants=[],
+    # The replay is staged on a token issued by the authorization-code flow; the
+    # other grants carry their own replay attacks (assertion replay, static
+    # secret leak).
+    applies_to_grants=["authorization_code"],
 )
