@@ -27,16 +27,16 @@ def test_catalog_serializes_with_required_metadata():
             "description",
             "spec_ref",
             "kind",
-            "phase",
             "default_active",
             "params",
             "incompatibilities",
             "applies_to_grants",
             "implies",
             "forbids",
-            "available",
         ):
             assert key in item, f"catalog item missing {key}"
+        # Feature gating is gone: the catalog just lists features.
+        assert "phase" not in item and "available" not in item
         assert item["spec_ref"]["rfc"] and item["spec_ref"]["section"]
         for list_key in ("applies_to_grants", "implies", "forbids"):
             assert isinstance(item[list_key], list)
@@ -44,21 +44,26 @@ def test_catalog_serializes_with_required_metadata():
     assert {"pkce", "state", "dpop"} <= ids
 
 
-def test_catalog_phase_numbers_match_the_roadmap():
+def test_catalog_lists_exactly_the_shipped_features():
     cat = registry.to_catalog_dict()
-    by_id = {i["id"]: i for i in [*cat["capabilities"], *cat["attacks"]]}
-    expected = {
-        "pkce": 1,
-        "auth_code_injection": 1,
-        "state": 2,
-        "code_token_replay": 2,
-        "static_secret_leak": 5,
-        "dpop": 6,
-        "issuer_id": 7,
-        "phish_then_inject": 7,
+    cap_ids = [i["id"] for i in cat["capabilities"]]
+    atk_ids = [i["id"] for i in cat["attacks"]]
+    # Every shipped capability/attack is listed, and nothing deferred lingers.
+    assert set(cap_ids) == {
+        "pkce",
+        "state",
+        "assertion_replay_protection",
+        "client_auth",
+        "dpop",
     }
-    for fid, phase in expected.items():
-        assert by_id[fid]["phase"] == phase, f"{fid} phase should be {phase}"
+    assert set(atk_ids) == {
+        "auth_code_injection",
+        "code_token_replay",
+        "csrf_code_injection",
+        "assertion_replay",
+        "static_secret_leak",
+        "token_replay",
+    }
 
 
 def test_applies_to_grants_populated_sensibly():
@@ -68,31 +73,20 @@ def test_applies_to_grants_populated_sensibly():
     assert by_id["dpop"].applies_to_grants == []  # applies broadly
 
 
-def test_availability_reflects_current_phase():
-    cat = registry.to_catalog_dict()
-    by_id = {i["id"]: i for i in [*cat["capabilities"], *cat["attacks"]]}
-    # Through Phase 6: Phase 1's pkce + auth-code injection, Phase 2's state /
-    # replay / CSRF, Phase 4's assertion replay protection + assertion replay,
-    # Phase 5's client_auth + static-secret-leak, and Phase 6's dpop + token
-    # replay are all runnable; issuer_id and the phishing attacks (Phase 7) stay
-    # unavailable until their own phase.
-    available = {i["id"] for i in [*cat["capabilities"], *cat["attacks"]] if i["available"]}
-    assert available == {
-        "pkce",
-        "auth_code_injection",
-        "state",
-        "code_token_replay",
-        "csrf_code_injection",
-        "assertion_replay_protection",
-        "assertion_replay",
-        "client_auth",
-        "static_secret_leak",
-        "dpop",
-        "token_replay",
-    }
-    # And availability is exactly "phase <= CURRENT_PHASE".
-    for item in by_id.values():
-        assert item["available"] == (item["phase"] <= registry.CURRENT_PHASE)
+def test_unknown_feature_is_rejected_by_the_conductor():
+    # A registered feature is simply available; an id that isn't in the registry
+    # is refused rather than silently ignored.
+    from otv.contract import FeatureState
+    from otv.engine.conductor import UnsupportedScenario
+
+    with pytest.raises(UnsupportedScenario):
+        run(
+            ScenarioConfig(
+                grant="authorization_code",
+                capabilities={"no_such_capability": FeatureState(active=True)},
+            )
+        )
+    assert registry.get("no_such_capability") is None
 
 
 def test_feature_map_accepts_state_objects_and_bool_shorthand():

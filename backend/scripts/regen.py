@@ -113,7 +113,7 @@ TRACE_FIXTURES: List[Tuple[str, str, ScenarioConfig]] = [
             atks={"assertion_replay": FeatureState(active=True)},
         ),
     ),
-    # Phase 5 — client credentials + client authentication methods.
+    # Client credentials + client authentication methods.
     (
         "client_credentials_secret",
         "clientCredentialsSecret.json",
@@ -164,7 +164,7 @@ TRACE_FIXTURES: List[Tuple[str, str, ScenarioConfig]] = [
             atks={"static_secret_leak": FeatureState(active=True)},
         ),
     ),
-    # Phase 6 — DPoP sender-constrained tokens + token replay.
+    # DPoP sender-constrained tokens + token replay.
     (
         "token_replay_bearer",
         "tokenReplayBearer.json",

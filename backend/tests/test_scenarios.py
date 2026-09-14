@@ -34,7 +34,7 @@ def test_all_steps_ok_and_expected_phases(happy_trace):
     assert [e.outcome for e in events] == ["ok"] * len(events)
     phases = {e.phase for e in events}
     assert phases == {"authorize", "redirect", "token", "resource"}
-    # No attacker activity in Phase 0.
+    # No attacker activity on the clean happy path.
     assert all(e.on_behalf_of == "user" for e in events)
     assert all(e.actor != "attacker" for e in events)
 
@@ -108,25 +108,25 @@ def test_single_use_code_is_enforced(happy_trace):
     assert exc.value.error == "invalid_grant"
 
 
-def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
-    # A later-phase capability (issuer_id, Phase 7) is still refused.
+def test_unknown_features_and_unrouted_grants_are_unsupported():
+    # An unknown capability id (nothing in the registry) is refused, not ignored.
     with pytest.raises(UnsupportedScenario):
         run(
             ScenarioConfig(
                 grant="authorization_code",
-                capabilities={"issuer_id": FeatureState(active=True)},
+                capabilities={"no_such_capability": FeatureState(active=True)},
             )
         )
-    # A later-phase attack (phishing, Phase 7) is still refused.
+    # An unknown attack id is refused too.
     with pytest.raises(UnsupportedScenario):
         run(
             ScenarioConfig(
                 grant="authorization_code",
-                attacks={"phishing": FeatureState(active=True)},
+                attacks={"no_such_attack": FeatureState(active=True)},
             )
         )
     # The static-secret leak is a client-credentials attack; there is no runner for
-    # it under the authorization-code grant, so that combination is still refused.
+    # it under the authorization-code grant, so that combination is refused.
     with pytest.raises(UnsupportedScenario):
         run(
             ScenarioConfig(
@@ -134,8 +134,8 @@ def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
                 attacks={"static_secret_leak": FeatureState(active=True)},
             )
         )
-    # 'implicit' is the one GRANTS entry with no runner yet (authorization_code,
-    # client_credentials, and jwt_bearer are all live by Phase 6).
+    # 'implicit' is the one GRANTS entry with no runner (authorization_code,
+    # client_credentials, and jwt_bearer all have runners).
     with pytest.raises(UnsupportedScenario):
         run(ScenarioConfig(grant="implicit"))
 

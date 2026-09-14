@@ -63,4 +63,4 @@ def _run(config: ScenarioConfig) -> Trace:
     return recorder.seal(verdict)
 
 
-register(Runner(id="happy_path", matches=_matches, run=_run))
+register(Runner(id="happy_path", matches=_matches, run=_run, order=10))

@@ -31,7 +31,6 @@ export interface FeatureRow {
   spec: string;
   on: boolean;
   onToggle: () => void;
-  disabled?: boolean;
 }
 
 interface Props {
@@ -153,14 +152,10 @@ export function CommandBar(props: Props) {
                 <button
                   key={card.key}
                   className={`scenario-card ${card.available ? "available" : ""}`}
-                  disabled={!card.available}
                   onClick={card.onSelect}
                   aria-pressed={card.selected}
                 >
-                  <span className="kicker">
-                    {card.kicker}
-                    {card.available ? "" : " · soon"}
-                  </span>
+                  <span className="kicker">{card.kicker}</span>
                   <span className="card-name">{card.name}</span>
                   <span className="card-desc">{card.description}</span>
                 </button>
@@ -237,8 +232,6 @@ function FeatureList({ rows, empty }: { rows: FeatureRow[]; empty: string }) {
           className={`config-row ${r.on ? "on" : ""}`}
           role="checkbox"
           aria-checked={r.on}
-          disabled={r.disabled}
-          title={r.disabled ? `${r.label} — coming soon` : undefined}
           onClick={r.onToggle}
         >
           <span className="config-check" aria-hidden="true">
@@ -246,10 +239,7 @@ function FeatureList({ rows, empty }: { rows: FeatureRow[]; empty: string }) {
           </span>
           <span className="config-label">{r.label}</span>
           <span className="config-one">{r.one}</span>
-          <span className="config-spec">
-            {r.spec}
-            {r.disabled ? " · soon" : ""}
-          </span>
+          <span className="config-spec">{r.spec}</span>
         </button>
       ))}
     </div>

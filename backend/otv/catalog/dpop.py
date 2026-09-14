@@ -18,7 +18,7 @@ capability(
     label="DPoP",
     description="Sender-constrain the token to a proof-of-possession key (cnf.jkt).",
     spec_ref=SpecRef(rfc="RFC 9449", section="§4"),
-    phase=6,
+    order=50,
     # Sender-constraining applies to any grant that yields a token.
     applies_to_grants=[],
     # The first-class check this capability's own enforcement emits — the resource

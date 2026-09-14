@@ -130,4 +130,4 @@ def _verdict(
     )
 
 
-register(Runner(id="token_replay", matches=_matches, run=_run))
+register(Runner(id="token_replay", matches=_matches, run=_run, order=90))

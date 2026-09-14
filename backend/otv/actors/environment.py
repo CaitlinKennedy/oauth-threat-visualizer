@@ -100,8 +100,8 @@ class Environment:
     public_client: RegisteredClient = field(default_factory=_public_client)
     user: SyntheticUser = field(default_factory=SyntheticUser)
     # Every subject the resource server can serve a profile for. Defaults to the
-    # single synthetic user; later phases add an attacker-controlled account here
-    # so an injected token resolves to the right (or wrong) profile.
+    # single synthetic user; an attacker-controlled account can be added here so
+    # an injected token resolves to the right (or wrong) profile.
     users: List[SyntheticUser] = field(default_factory=list)
 
     def __post_init__(self) -> None:

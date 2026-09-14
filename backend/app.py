@@ -8,9 +8,11 @@ Endpoints (IMPLEMENTATION.md §5):
 - ``GET  /api/fixtures/<id>`` a committed golden trace (demo / fallback)
 - ``GET  /*``                 serves the built React app from ``static/``
 
-``POST /api/run`` runs the real actors; if a live run raises (or the config is
-outside the current phase), it falls back to the committed golden trace so the
-UI always receives a complete, contract-valid trace.
+``POST /api/run`` runs the real actors. If the happy-path live run raises, it
+falls back to the committed golden trace so the UI still receives a complete,
+contract-valid trace; any other live-run crash is surfaced distinctly (500). A
+config the build does not support (an unknown feature, or a grant with no runner)
+is refused with a 501 rather than a fake success.
 """
 
 from __future__ import annotations

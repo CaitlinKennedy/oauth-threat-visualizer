@@ -1,14 +1,14 @@
 """Seam-locking tests for the self-registering catalog/runner plugin points.
 
 ``otv/registry.py`` and ``otv/engine/runners/__init__.py`` both promise the same
-shape of extension: a later phase drops a new file into ``otv/catalog`` or
-``otv/engine/runners`` and self-registers, with filename order controlling
+shape of extension: a new file dropped into ``otv/catalog`` or
+``otv/engine/runners`` self-registers, with an explicit ``order`` controlling
 display/match order and duplicate ids refused rather than silently clobbering
 each other. Those promises are otherwise only exercised implicitly by whichever
-capabilities happen to exist today; this module pins them directly so a future
-phase's mistake (a reordered import, a copy-pasted id, a runner whose predicate
-overlaps another's) fails here — fast and specifically — instead of showing up
-as unexplained fixture drift or a picker that renders in the wrong order.
+capabilities happen to exist; this module pins them directly so a later mistake
+(a wrong ``order``, a copy-pasted id, a runner whose predicate overlaps
+another's) fails here — fast and specifically — instead of showing up as
+unexplained fixture drift or a picker that renders in the wrong order.
 """
 
 from __future__ import annotations
@@ -28,25 +28,23 @@ BACKEND_FIXTURES = BACKEND / "otv" / "fixtures"
 
 
 # --- Deterministic registration order ---------------------------------------
-# The catalog and runner packages both discover modules via
-# ``sorted(pkgutil.iter_modules(...))`` — i.e. filename order. Pin the *order*
-# (not just membership) so a future file that discovery happens to import out
-# of the intended sequence (e.g. a bad rename, or a filename that doesn't sort
-# where its author expected) is caught immediately.
+# The catalog and runner packages both expose their items sorted by an explicit
+# ``order`` (ties broken by id), independent of filename. Pin the *order* (not
+# just membership) so a wrong ``order`` on a new item — which would reorder the
+# picker or change runner precedence — is caught immediately.
 
 
-def test_capability_registration_order_is_stable_filename_sorted():
+def test_capability_registration_order_is_stable():
     assert [c.id for c in registry.CAPABILITIES] == [
         "pkce",
         "state",
         "assertion_replay_protection",
         "client_auth",
         "dpop",
-        "issuer_id",
     ]
 
 
-def test_attack_registration_order_is_stable_filename_sorted():
+def test_attack_registration_order_is_stable():
     assert [a.id for a in registry.ATTACKS] == [
         "auth_code_injection",
         "code_token_replay",
@@ -54,12 +52,10 @@ def test_attack_registration_order_is_stable_filename_sorted():
         "assertion_replay",
         "static_secret_leak",
         "token_replay",
-        "phishing",
-        "phish_then_inject",
     ]
 
 
-def test_runner_registration_order_is_stable_filename_sorted():
+def test_runner_registration_order_is_stable():
     assert [r.id for r in runners_pkg.all_runners()] == [
         "happy_path",
         "auth_code_injection",
@@ -131,11 +127,10 @@ def test_runner_selection_is_deterministic():
 def test_registering_duplicate_capability_id_raises():
     with pytest.raises(ValueError):
         registry.capability(
-            id="pkce",  # already registered by catalog/c1_pkce.py
+            id="pkce",  # already registered by catalog/pkce.py
             label="duplicate",
             description="duplicate",
             spec_ref=SpecRef(rfc="RFC 0000", section="§0"),
-            phase=99,
         )
     # The original registration must be untouched.
     assert registry.get("pkce") is not None
@@ -145,11 +140,10 @@ def test_registering_duplicate_capability_id_raises():
 def test_registering_duplicate_attack_id_raises():
     with pytest.raises(ValueError):
         registry.attack(
-            id="auth_code_injection",  # already registered by catalog/a1_...
+            id="auth_code_injection",  # already registered by catalog/auth_code_injection.py
             label="duplicate",
             description="duplicate",
             spec_ref=SpecRef(rfc="RFC 0000", section="§0"),
-            phase=99,
         )
 
 
@@ -157,14 +151,14 @@ def test_registering_duplicate_runner_id_raises():
     with pytest.raises(ValueError):
         runners_pkg.register(
             runners_pkg.Runner(
-                id="happy_path",  # already registered by runners/r1_happy_path.py
+                id="happy_path",  # already registered by runners/happy_path.py
                 matches=lambda config: False,
                 run=lambda config: None,  # type: ignore[return-value]
             )
         )
     # The original registration must still be the one selected, unreplaced.
     happy = next(r for r in runners_pkg.all_runners() if r.id == "happy_path")
-    assert happy.matches.__module__.endswith("r1_happy_path")
+    assert happy.matches.__module__.endswith("happy_path")
     assert len([r for r in runners_pkg.all_runners() if r.id == "happy_path"]) == 1
 
 

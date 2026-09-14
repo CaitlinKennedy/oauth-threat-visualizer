@@ -191,10 +191,10 @@ export default function App() {
       setScenario(lessonIndex);
       setScenarioOpen(false);
       const preset = presets.find((p) => p.id === def.presetId);
-      if (preset && preset.available) {
+      if (preset) {
         void loadPreset(preset);
       } else {
-        setStatus(`${def.name} is not available in this build yet.`);
+        setStatus(`${def.name} is not available.`);
       }
     },
     [presets, loadPreset],
@@ -441,7 +441,7 @@ export default function App() {
         kicker: def.kicker,
         name: def.name,
         description: def.description,
-        available: !!preset && !!preset.available,
+        available: !!preset,
         selected: scenario === i,
         onSelect: () => selectScenario(i),
       };
@@ -481,7 +481,6 @@ export default function App() {
         one: it.description,
         spec: `${it.spec_ref.rfc} ${it.spec_ref.section}`,
         on: caps.includes(it.id),
-        disabled: !it.available,
         onToggle: () => onToggleCap(it.id),
       }));
   }, [catalog, grant, caps, onToggleCap]);
@@ -496,7 +495,6 @@ export default function App() {
         one: it.description,
         spec: `${it.spec_ref.rfc} ${it.spec_ref.section}`,
         on: atks.includes(it.id),
-        disabled: !it.available,
         onToggle: () => onToggleAtk(it.id),
       }));
   }, [catalog, grant, atks, onToggleAtk]);

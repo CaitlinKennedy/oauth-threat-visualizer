@@ -1,4 +1,4 @@
-"""Phase 1 tests: real PKCE and the auth-code injection flows (flows 2 & 3).
+"""Real PKCE and the auth-code injection flows (flows 2 & 3).
 
 These lock the pedagogical core: the same attack succeeds without PKCE and fails
 *at the real verifier check* with PKCE, the block is attributed to the pkce

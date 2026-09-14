@@ -1,4 +1,4 @@
-"""JWT bearer grant actors (RFC 7523 §2.1) — the Phase 4 drop.
+"""JWT bearer grant actors (RFC 7523 §2.1).
 
 The JWT authorization grant exchanges a signed **assertion** directly for a token:
 a trusted issuer signs an assertion whose ``sub`` is the user, the client presents
@@ -14,9 +14,9 @@ every security-relevant step real:
 - ``JwtBearerClient`` holds a real RSA signing key and mints a genuinely signed
   assertion (``iss`` = the client, the trusted issuer; ``sub`` = the user;
   ``aud`` = the token endpoint; short ``exp`` + fresh ``jti``).
-- ``JwtBearerAuthServer`` is a real authorization server (it subclasses the
-  Phase-0 ``AuthServerImpl``, so it reuses the same signing key + JWKS the
-  resource server already trusts) whose ``token_jwt_bearer`` endpoint verifies the
+- ``JwtBearerAuthServer`` is a real authorization server (it subclasses the base
+  ``AuthServerImpl``, so it reuses the same signing key + JWKS the resource
+  server already trusts) whose ``token_jwt_bearer`` endpoint verifies the
   assertion's signature against the issuer's JWKS and its ``iss``/``sub``/``aud``/
   ``exp`` (RFC 7523 §3), tracks each ``jti`` for one-time use, and signs a real
   RS256 access token.
@@ -25,8 +25,8 @@ every security-relevant step real:
   the genuine ``assertion_jti_single_use`` check rejects the reused ``jti``;
   without it the server observes the reuse but does not act on it.
 
-The actor pieces live together in one Phase-4 module (mirroring the catalog/runner
-plugin-seam convention) so the phase is a self-contained drop; they reuse the
+The actor pieces live together in one module (mirroring the catalog/runner
+plugin-seam convention) so the grant is a self-contained drop; they reuse the
 shared ``crypto``, ``recorder``, and trace-context seams like every other actor.
 """
 
@@ -178,7 +178,7 @@ class JwtBearerClient:
 class JwtBearerAuthServer(AuthServerImpl):
     """An authorization server that also implements the JWT bearer grant.
 
-    Subclasses the Phase-0 ``AuthServerImpl`` so it is a real AS: it reuses the
+    Subclasses the base ``AuthServerImpl`` so it is a real AS: it reuses the
     same RS256 signing key and JWKS the resource server already trusts (inherited
     ``jwks()``), and simply adds the ``token_jwt_bearer`` endpoint. It holds the
     trusted assertion issuers' public keys and a seen-``jti`` store for one-time

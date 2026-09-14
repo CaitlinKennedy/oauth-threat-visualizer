@@ -1,11 +1,10 @@
 """The Attacker actor.
 
 A first-class actor in the design (DESIGN.md §3), modeled with its own service
-and its own origin. Exposed as a service-API interface so later phases add more
-real attack methods (replay, phishing chains) behind the same seam every other
-actor uses.
+and its own origin. Exposed as a service-API interface so new attack methods are
+added behind the same seam every other actor uses.
 
-Phase 1 makes the attacker **real** for auth-code injection (RFC 9700 §4.5): it
+The attacker is **real** for auth-code injection (RFC 9700 §4.5): it
 obtains an authorization code from the front channel and attempts to redeem it at
 the *real* token endpoint. Whether that succeeds is decided entirely by the real
 protocol — with PKCE the attacker cannot produce the matching ``code_verifier``,

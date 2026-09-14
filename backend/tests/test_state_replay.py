@@ -1,15 +1,15 @@
-"""Phase 2 tests: state enforcement, CSRF injection, and auth-code replay.
+"""state enforcement, CSRF injection, and auth-code replay.
 
-These lock the Phase 2 pedagogical core:
+These lock the pedagogical core:
 
 - ``state`` is ENFORCED when active (a mismatch is rejected before redemption) and
-  merely REPORTED when inactive (the P1 honest-report behavior).
+  merely REPORTED when inactive (the honest-report behavior).
 - CSRF / cross-session code injection succeeds without ``state`` (the victim's
   client is bound to the attacker's account) and is blocked with ``state`` on —
   the responsible capability and blocked seq derived from the emitted trace.
 - Auth-code replay fails at the genuine single-use check on the second redemption.
 - The ``state`` off-vs-on paired diff diverges at the state check.
-- The catalog is unchanged for the existing items and the new items are available.
+- The state/replay items are catalogued alongside the existing ones.
 """
 
 import pytest
@@ -206,37 +206,26 @@ def test_csrf_compare_prefix_identical_until_divergence():
     assert _fingerprint(b[div_seq]) != _fingerprint(v[div_seq])
 
 
-# --- catalog: existing items unchanged, new items available ----------------
+# --- catalog metadata -------------------------------------------------------
 
 
-def test_new_phase2_items_are_available_others_still_not():
+def test_state_and_replay_items_are_catalogued():
     by_id = {i["id"]: i for i in [*registry.to_catalog_dict()["capabilities"],
                                   *registry.to_catalog_dict()["attacks"]]}
-    # Runnable at Phase 2 and still runnable now.
     for fid in ("state", "code_token_replay", "csrf_code_injection"):
-        assert by_id[fid]["available"] is True, f"{fid} should be available"
-    # Still on the roadmap at Phase 6 (Phase 7's issuer_id/phish_then_inject chain).
-    for fid in ("issuer_id", "phish_then_inject"):
-        assert by_id[fid]["available"] is False, f"{fid} should not be available yet"
-    # Availability is exactly phase <= CURRENT_PHASE.
-    for item in by_id.values():
-        assert item["available"] == (item["phase"] <= registry.CURRENT_PHASE)
+        assert fid in by_id, f"{fid} should be catalogued"
 
 
 def test_csrf_catalog_entry_metadata():
     item = registry.get("csrf_code_injection")
     assert item is not None
     assert item.kind == "attack"
-    assert item.phase == 2
     assert item.applies_to_grants == ["authorization_code"]
     assert item.spec_ref.rfc == "RFC 6749"
 
 
 def test_existing_catalog_items_metadata_unchanged():
     by_id = {i.id: i for i in [*registry.CAPABILITIES, *registry.ATTACKS]}
-    assert by_id["pkce"].phase == 1
     assert by_id["pkce"].applies_to_grants == ["authorization_code"]
-    assert by_id["state"].phase == 2
     assert by_id["state"].applies_to_grants == ["authorization_code"]
-    assert by_id["code_token_replay"].phase == 2
-    assert by_id["dpop"].phase == 6 and by_id["dpop"].applies_to_grants == []
+    assert by_id["dpop"].applies_to_grants == []

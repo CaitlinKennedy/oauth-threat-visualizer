@@ -20,7 +20,7 @@ attack(
     label="Assertion replay",
     description="Capture a valid JWT assertion and re-present it at the token endpoint.",
     spec_ref=SpecRef(rfc="RFC 7523", section="§3"),
-    phase=4,
+    order=40,
     # Assertion replay is specific to the JWT bearer grant (RFC 7523).
     applies_to_grants=["jwt_bearer"],
 )

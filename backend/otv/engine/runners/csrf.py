@@ -145,4 +145,4 @@ def _success_verdict(*, bound_username: str) -> Verdict:
     )
 
 
-register(Runner(id="csrf_code_injection", matches=_matches, run=_run))
+register(Runner(id="csrf_code_injection", matches=_matches, run=_run, order=40))

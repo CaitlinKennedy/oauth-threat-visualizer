@@ -154,7 +154,7 @@ export interface Trace {
   config: ScenarioConfig;
   verdict: Verdict;
   events: StepEvent[];
-  // Reserved for Phase 4 chained attacks (linked sub-traces); null otherwise.
+  // Reserved for chained attacks (linked sub-traces); null otherwise.
   parent_id?: string | null;
   chain_id?: string | null;
   // Set only on the terminal sub-trace of a chain; null for a standalone run.
@@ -165,7 +165,7 @@ export interface Trace {
 
 // --- Compare / diff response (the flow-2 vs flow-3 gesture) -----------------
 // The SHAPE is frozen in v1.0; the compare logic (running baseline + variant and
-// computing where they diverge) arrives in a later phase.
+// computing where they diverge) runs on the backend (otv.engine.compare).
 
 export interface Divergence {
   seq: number;
@@ -192,7 +192,6 @@ export interface Preset {
   tagline: string;
   description: string;
   config: ScenarioConfig;
-  available: boolean;
   // Preset metadata (not part of the frozen trace contract). A preset with
   // `mode: "compare"` drives the paired-diff endpoint using `compare.baseline`
   // and `compare.variant` — the flow-2↔3 gesture.
@@ -222,7 +221,6 @@ export interface RegistryItem {
   description: string;
   spec_ref: SpecRef;
   kind: "capability" | "attack";
-  phase: number;
   default_active: boolean;
   params: ParamSpec[];
   incompatibilities: string[];
@@ -230,14 +228,13 @@ export interface RegistryItem {
   applies_to_grants: string[];
   // Meta-capability bundling: ids this item forces active+locked (implies) or
   // disallows (forbids). A forbids entry may name a capability id OR a grant id
-  // (e.g. oauth_2_1 forbids "implicit"). Both empty for a plain item.
+  // (e.g. a bundling capability could forbid "implicit"). Both empty for a plain item.
   implies: string[];
   forbids: string[];
   // Names of the first-class checks (StepEvent.check.name) this item's own
   // enforcement emits, e.g. ["pkce_verifier_match"]. Empty for an item that
   // emits no first-class check (e.g. an attack).
   check_names: string[];
-  available: boolean;
 }
 
 export interface Catalog {

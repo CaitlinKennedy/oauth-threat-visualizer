@@ -1,17 +1,17 @@
-"""Phase 4 tests: the JWT bearer grant (RFC 7523) and assertion replay.
+"""The JWT bearer grant (RFC 7523) and assertion replay.
 
-These lock the Phase 4 pedagogical core:
+These lock the pedagogical core:
 
 - The happy path exchanges a signed assertion for a *real*, verifiable access
-  token with no front channel at all (no authorize/redirect phase).
+  token with no front channel at all (no authorize/redirect stage).
 - Because there is no front channel, the front-channel attacks are Not Applicable
-  to this grant (scoped away by ``applies_to_grants``), and other grants / later
-  phases stay conductor-rejected.
+  to this grant (scoped away by ``applies_to_grants``), and unrouted grants stay
+  conductor-rejected.
 - Assertion replay is blocked by the genuine one-time-``jti`` check, with the
   responsible capability derived from the failing check via the registry; without
   the protection the replay wins and reads the user's profile.
 - The protection off-vs-on paired diff diverges at exactly the ``jti`` check.
-- The new catalog items are available in Phase 4; Phase 5+ items are not.
+- The JWT-bearer catalog items are catalogued and scoped to the grant.
 """
 
 import jwt
@@ -142,13 +142,13 @@ def test_front_channel_attacks_are_not_applicable_to_jwt_bearer():
     assert registry.get("assertion_replay").applies_to_grants == ["jwt_bearer"]
 
 
-def test_other_grants_and_later_phase_features_still_rejected():
+def test_grant_mismatched_and_unrouted_grants_are_rejected():
     # The static-secret leak is a client-credentials attack; there is no runner
     # for it under the jwt_bearer grant, so that combination stays refused.
     with pytest.raises(UnsupportedScenario):
         run(_cfg(atks={"static_secret_leak": {"active": True}}))
-    # 'implicit' is the one GRANTS entry with no runner yet (authorization_code,
-    # client_credentials, and jwt_bearer are all live by Phase 6).
+    # 'implicit' is the one GRANTS entry with no runner (authorization_code,
+    # client_credentials, and jwt_bearer all have runners).
     with pytest.raises(UnsupportedScenario):
         run(ScenarioConfig(grant="implicit"))
 
@@ -254,7 +254,7 @@ def test_compare_prefix_identical_until_divergence():
 # --- Catalog metadata --------------------------------------------------------
 
 
-def test_new_phase4_items_available_and_scoped():
+def test_jwt_bearer_items_catalogued_and_scoped():
     by_id = {
         i["id"]: i
         for i in [
@@ -263,8 +263,6 @@ def test_new_phase4_items_available_and_scoped():
         ]
     }
     for fid in ("assertion_replay_protection", "assertion_replay"):
-        assert by_id[fid]["available"] is True
-        assert by_id[fid]["phase"] == 4
         assert by_id[fid]["applies_to_grants"] == ["jwt_bearer"]
     # The protection capability declares the check it blocks with.
     assert registry.get("assertion_replay_protection").check_names == [

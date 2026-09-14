@@ -1,10 +1,9 @@
 """The Resource Server.
 
 Protects an API endpoint and validates the access token before serving the
-resource. Phase 0 validates the JWT's signature (against the AS's published
-JWKS), expiry, issuer, audience, and ``typ``. This is the place where, in later
-phases, a stolen-but-unbound token visibly fails; here, on the happy path, a
-valid token succeeds.
+resource. It validates the JWT's signature (against the AS's published JWKS),
+expiry, issuer, audience, and ``typ``. This is the place where a stolen-but-
+unbound token visibly fails; on the happy path, a valid token succeeds.
 
 The service-API interface is pure protocol: ``get_resource(request)`` takes only
 the domain request. Correlation metadata (``on_behalf_of``, causal ``refs``) is

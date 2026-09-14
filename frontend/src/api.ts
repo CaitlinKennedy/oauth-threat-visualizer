@@ -52,7 +52,7 @@ export async function fetchPresets(): Promise<PresetsPayload> {
   return getJSON<PresetsPayload>("/api/scenarios");
 }
 
-// The typed registry → the data-driven capability/attack picker (roadmap in P0).
+// The typed registry → the data-driven capability/attack picker.
 export async function fetchCatalog(): Promise<Catalog> {
   return getJSON<Catalog>("/api/catalog");
 }

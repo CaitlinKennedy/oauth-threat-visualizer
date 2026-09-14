@@ -262,6 +262,11 @@ Builds on Phase 0 to deliver **flows 2 and 3**:
 The through-line is the thesis **every mitigation is a binding**; each phase adds a binding
 (or shows one being removed) and the attack it closes.
 
+> **Scope note.** This build ships Phases 0–2 and 4–6. **Phase 3 (OAuth 2.0 vs 2.1,
+> incl. the `oauth_2_1` meta-capability) and Phase 7 (combined-attack capstone) are
+> DEFERRED / out of scope for this build** — they are retained below as design intent,
+> not as shipped features.
+
 - **Phase 2 — `state`/CSRF + auth-code replay.** `state` binds the response to the user's
   session (RFC 6749 §10.12); a real single-use code store makes a **replayed code** fail
   the second time (RFC 6749 §4.1.2; RFC 9700). Two mitigations composing in one open

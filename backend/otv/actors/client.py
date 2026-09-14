@@ -9,7 +9,8 @@ prior events internally rather than receiving them across the seam. So promoting
 any actor to a standalone REST service later is a transport swap, not a change to
 callers or the contract.
 
-Phase 0 is a confidential client with no PKCE (added in Phase 1).
+On the base authorization-code path the client is confidential with no PKCE;
+PKCE is layered on through the capability catalog.
 """
 
 from __future__ import annotations

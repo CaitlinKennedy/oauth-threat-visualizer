@@ -108,4 +108,4 @@ def _verdict(recorder: Recorder, attacker_got_token: bool, at_seq: Optional[int]
     )
 
 
-register(Runner(id="auth_code_injection", matches=_matches, run=_run))
+register(Runner(id="auth_code_injection", matches=_matches, run=_run, order=20))

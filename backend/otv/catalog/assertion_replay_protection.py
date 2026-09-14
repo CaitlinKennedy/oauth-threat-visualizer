@@ -25,7 +25,7 @@ capability(
     label="Assertion replay protection",
     description="Enforce one-time use of an assertion's jti (with short exp + aud binding).",
     spec_ref=SpecRef(rfc="RFC 7523", section="§3"),
-    phase=4,
+    order=30,
     applies_to_grants=["jwt_bearer"],
     # The first-class check this capability's own enforcement emits (see
     # engine.runners.support.CHECK_TO_CAPABILITY, derived by scanning this).

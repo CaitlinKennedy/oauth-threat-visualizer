@@ -18,7 +18,7 @@ attack(
     label="Access-token theft / replay",
     description="Reuse a stolen access token at the resource server.",
     spec_ref=SpecRef(rfc="RFC 9449", section="§1"),
-    phase=6,
+    order=60,
     # Token replay applies to any grant that yields a bearer token.
     applies_to_grants=[],
 )
