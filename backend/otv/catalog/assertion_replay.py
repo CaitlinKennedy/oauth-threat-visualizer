@@ -17,7 +17,7 @@ from ..registry import attack
 
 attack(
     id="assertion_replay",
-    label="Assertion replay",
+    label="Assertion replay (token endpoint)",
     description="Capture a valid JWT assertion and re-present it at the token endpoint.",
     spec_ref=SpecRef(rfc="RFC 7523", section="§3"),
     order=40,

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ...actors.attacker import AttackerImpl
 from ...actors.environment import Environment
 from ...actors.jwt_bearer import (
     JwtBearerAttacker,
@@ -33,7 +34,13 @@ from ...contract import ScenarioConfig, Trace, Verdict
 from ...recorder import Recorder
 from ...trace_context import acting
 from . import Runner, register
-from .support import CHECK_TO_CAPABILITY, event_at, new_run_id
+from .support import (
+    CHECK_TO_CAPABILITY,
+    dpop_active,
+    event_at,
+    new_run_id,
+    token_replay_verdict,
+)
 
 
 def _replay_protection_active(config: ScenarioConfig) -> bool:
@@ -48,7 +55,9 @@ def _build(config: ScenarioConfig):
     # One real signing key: the client mints assertions with the private half; the
     # AS trusts the public half (registered as the issuer's JWKS).
     client_key = crypto.SigningKey.generate(kid="issuer-2026-09")
-    client = JwtBearerClient(recorder, env, signing_key=client_key)
+    client = JwtBearerClient(
+        recorder, env, signing_key=client_key, dpop=dpop_active(config)
+    )
     auth_server = JwtBearerAuthServer(
         recorder,
         env,
@@ -181,5 +190,52 @@ def _replay_verdict(
     )
 
 
+# --- Access-token replay ----------------------------------------------------
+
+
+def _token_replay_matches(config: ScenarioConfig) -> bool:
+    return config.grant == "jwt_bearer" and "token_replay" in config.active_attacks()
+
+
+def _token_replay_run(config: ScenarioConfig) -> Trace:
+    """Steal the access token the assertion was exchanged for, replay it at the RS.
+
+    Unlike assertion replay (which targets the token endpoint), this attacks the
+    token itself, so only DPoP sender-constraining decides it.
+    """
+    recorder, env, client, auth_server, resource_server = _build(config)
+    attacker = AttackerImpl(recorder, env, active=True)
+
+    with acting(on_behalf_of="user"):
+        client.mint_assertion()
+        exchanged = client.present_assertion(auth_server=auth_server)
+        result = client.access_resource(resource_server=resource_server)
+
+    token = exchanged["token_response"].get("access_token")
+    attacker.capture_token(token, obtained_from_seq=result["seq"])
+    outcome = attacker.replay_token(resource_server=resource_server)
+
+    verdict = token_replay_verdict(
+        recorder,
+        attacker_read_resource=bool(outcome["got_resource"]),
+        at_seq=outcome.get("at_seq"),
+        user_got_token=bool(token),
+        user_accessed_resource=bool(result["ok"]),
+        honest_bearer=(
+            "User obtained an access token: YES — the client exchanged a signed "
+            "assertion for a user-scoped token and read the resource."
+        ),
+        honest_dpop=(
+            "User obtained an access token: YES — the client exchanged a signed "
+            "assertion with a DPoP proof, binding the token to its key, and read the "
+            "resource."
+        ),
+    )
+    return recorder.seal(verdict)
+
+
 register(Runner(id="jwt_bearer_happy", matches=_happy_matches, run=_happy_run, order=50))
 register(Runner(id="assertion_replay", matches=_replay_matches, run=_replay_run, order=60))
+register(
+    Runner(id="jwt_bearer_token_replay", matches=_token_replay_matches, run=_token_replay_run, order=65)
+)

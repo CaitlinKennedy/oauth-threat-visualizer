@@ -71,6 +71,8 @@ def test_applies_to_grants_populated_sensibly():
     assert by_id["pkce"].applies_to_grants == ["authorization_code"]
     assert by_id["state"].applies_to_grants == ["authorization_code"]
     assert by_id["dpop"].applies_to_grants == []  # applies broadly
+    assert by_id["token_replay"].applies_to_grants == []
+    assert by_id["code_token_replay"].applies_to_grants == ["authorization_code"]
 
 
 def test_unknown_feature_is_rejected_by_the_conductor():

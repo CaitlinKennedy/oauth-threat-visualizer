@@ -349,7 +349,9 @@ class AttackerImpl(Attacker):
         self._intercept_seq = seq
         return {"seq": seq}
 
-    def replay_token(self, *, resource_server: ResourceServer) -> Dict[str, Any]:
+    def replay_token(
+        self, *, resource_server: ResourceServer, resource_owner: str = "the victim's"
+    ) -> Dict[str, Any]:
         """Replay the stolen access token at the resource server.
 
         The attacker inspects the token for a ``cnf.jkt`` (sender-constraint). If
@@ -358,7 +360,8 @@ class AttackerImpl(Attacker):
         attacker must present a DPoP proof, but it can only sign one with its *own*
         key (it lacks the client's), so the proof's thumbprint cannot match the
         token's ``cnf.jkt`` and the resource server rejects the replay. Returns
-        ``{"got_resource": bool, "at_seq": int}``.
+        ``{"got_resource": bool, "at_seq": int}``. ``resource_owner`` names whose
+        data the token unlocks (a user, or the client itself when there is none).
         """
         token = self._access_token
         assert token is not None, "replay_token called before capture_token"
@@ -387,11 +390,11 @@ class AttackerImpl(Attacker):
             seq = self.recorder.emit(
                 actor="attacker",
                 phase="resource",
-                summary="Attacker reads the victim's resource with the stolen token.",
+                summary=f"Attacker reads {resource_owner} resource with the stolen token.",
                 detail=(
                     "The token is a plain bearer token, so the resource server "
                     "requires nothing but possession. The attacker replays it from "
-                    "its own machine and the resource server returns the victim's "
+                    f"its own machine and the resource server returns {resource_owner} "
                     "protected data — a stolen bearer token works anywhere."
                 ),
                 outcome="attack_success",

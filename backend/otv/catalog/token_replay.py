@@ -15,10 +15,10 @@ from ..registry import attack
 
 attack(
     id="token_replay",
-    label="Access-token theft / replay",
+    label="Access-token replay (resource server)",
     description="Reuse a stolen access token at the resource server.",
     spec_ref=SpecRef(rfc="RFC 9449", section="§1"),
     order=60,
-    # Token replay applies to any grant that yields a bearer token.
+    # Every grant issues an access token, so every grant can have one stolen.
     applies_to_grants=[],
 )

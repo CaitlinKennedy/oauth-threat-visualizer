@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from ... import crypto
-from ...contract import ScenarioConfig, StepEvent
+from ...contract import ScenarioConfig, StepEvent, Verdict
 from ...recorder import Recorder
 from ...registry import ATTACKS, CAPABILITIES
 from ...trace_context import acting
@@ -83,6 +83,61 @@ def event_at(recorder: Recorder, seq: Optional[int]) -> Optional[StepEvent]:
 
 def new_run_id() -> str:
     return crypto.new_opaque_token(prefix="run_")
+
+
+def token_replay_verdict(
+    recorder: Recorder,
+    *,
+    attacker_read_resource: bool,
+    at_seq: Optional[int],
+    user_got_token: bool,
+    user_accessed_resource: bool,
+    honest_bearer: str,
+    honest_dpop: str,
+    resource_owner: str = "the victim's",
+) -> Verdict:
+    """The verdict for an access-token replay at the resource server.
+
+    Shared by every grant's token-replay runner: only how the honest party got its
+    token differs (``honest_bearer`` / ``honest_dpop`` describe that), while the
+    replay and its DPoP binding are identical. A block is attributed to the
+    capability owning the failing check in the emitted trace.
+    """
+    if attacker_read_resource:
+        # DPoP off (or not holding): a stolen bearer token works anywhere.
+        return Verdict(
+            attacker_got_token=True,
+            user_got_token=user_got_token,
+            user_accessed_resource=user_accessed_resource,
+            one_line=(
+                f"{honest_bearer} Attacker replayed the stolen token: YES — the "
+                "token is a plain bearer token, so possession is all the resource "
+                f"server requires and the attacker reads {resource_owner} resource "
+                "(RFC 6750). Sender-constraining the token (DPoP) is what closes this."
+            ),
+            blocked_at_seq=None,
+            responsible_capability=None,
+            responsible_capabilities=[],
+        )
+
+    blocking = event_at(recorder, at_seq)
+    check_name = blocking.check.name if (blocking and blocking.check) else "dpop_binding"
+    responsible = CHECK_TO_CAPABILITY.get(check_name)
+    return Verdict(
+        attacker_got_token=False,
+        user_got_token=user_got_token,
+        user_accessed_resource=user_accessed_resource,
+        one_line=(
+            f"{honest_dpop} Attacker replayed the stolen token: NO — the "
+            "token is sender-constrained (cnf.jkt), so the resource server requires a "
+            "DPoP proof from the bound key. The attacker holds the token but not the "
+            f"client's private key, so the {check_name} check fails and the resource "
+            "server rejects the replay (RFC 9449 §7.1)."
+        ),
+        blocked_at_seq=at_seq,
+        responsible_capability=responsible,
+        responsible_capabilities=[responsible] if responsible else [],
+    )
 
 
 def drive_honest_client(

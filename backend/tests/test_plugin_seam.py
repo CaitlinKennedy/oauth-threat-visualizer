@@ -63,8 +63,10 @@ def test_runner_registration_order_is_stable():
         "csrf_code_injection",
         "jwt_bearer_happy",
         "assertion_replay",
+        "jwt_bearer_token_replay",
         "client_credentials",
         "static_secret_leak",
+        "client_credentials_token_replay",
         "token_replay",
     ]
 
