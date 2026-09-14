@@ -143,12 +143,14 @@ def test_front_channel_attacks_are_not_applicable_to_jwt_bearer():
 
 
 def test_other_grants_and_later_phase_features_still_rejected():
-    # A Phase 5 attack stays refused even at CURRENT_PHASE 4.
+    # The static-secret leak is a client-credentials attack; there is no runner
+    # for it under the jwt_bearer grant, so that combination stays refused.
     with pytest.raises(UnsupportedScenario):
         run(_cfg(atks={"static_secret_leak": {"active": True}}))
-    # The client-credentials grant has no runner yet.
+    # 'implicit' is the one GRANTS entry with no runner yet (authorization_code,
+    # client_credentials, and jwt_bearer are all live by Phase 6).
     with pytest.raises(UnsupportedScenario):
-        run(ScenarioConfig(grant="client_credentials"))
+        run(ScenarioConfig(grant="implicit"))
 
 
 # --- Assertion replay: blocked by the real one-time-jti check ---------------
