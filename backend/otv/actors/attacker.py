@@ -299,6 +299,136 @@ class AttackerImpl(Attacker):
         )
         return {"got_token": True, "at_seq": seq}
 
+    # --- Access-token theft / replay (RFC 9449 §1) ------------------------
+
+    def capture_token(self, token: str, *, obtained_from_seq: int) -> Dict[str, Any]:
+        """Capture a copy of the honest client's issued access token.
+
+        A token can leak in transit or at rest — a proxy log, a compromised
+        endpoint, a browser extension. The attacker keeps the raw token bytes. For
+        a plain bearer token that is all it takes to use it; for a DPoP
+        sender-constrained token the bytes are not enough, because the attacker
+        does not hold the client's proof-of-possession private key.
+        """
+        self._access_token = token
+        # The attacker holds the token; whether it is sender-constrained is visible
+        # in the token itself (cnf.jkt), but the DPoP *private* key never left the
+        # client, so that is exactly what the attacker lacks.
+        bound = bool((crypto.decode_claims_unverified(token).get("cnf") or {}).get("jkt"))
+        knowledge = (
+            KnowledgeState(has=["access_token"], lacks=["dpop_private_key"])
+            if bound
+            else KnowledgeState(has=["access_token"])
+        )
+        seq = self.recorder.emit(
+            actor="attacker",
+            phase="resource",
+            summary="Attacker steals a copy of the access token.",
+            detail=(
+                "The attacker obtains the raw access token the honest client was "
+                "issued (via a proxy log, a compromised store, or an exfiltrating "
+                "extension). Possessing the token bytes is enough to replay a plain "
+                "bearer token; a DPoP-bound token additionally requires proving "
+                "possession of the client's key, which the attacker does not hold."
+            ),
+            outcome="ok",
+            refs=[obtained_from_seq],
+            http=HttpExchange(
+                request=HttpMessage(
+                    method="GET",
+                    url=f"{self.origin}/harvest",
+                    headers={"X-Observed": "leaked access token"},
+                ),
+                response=HttpMessage(status=200, body={"captured_token": "<access_token>"}),
+                highlight=["response.body.captured_token"],
+                source_actor="client",
+                target_actor="attacker",
+            ),
+            knowledge_delta={"attacker": knowledge},
+            spec_refs=[SpecRef(rfc="RFC 9449", section="§1")],
+        )
+        self._intercept_seq = seq
+        return {"seq": seq}
+
+    def replay_token(self, *, resource_server: ResourceServer) -> Dict[str, Any]:
+        """Replay the stolen access token at the resource server.
+
+        The attacker inspects the token for a ``cnf.jkt`` (sender-constraint). If
+        there is none, it replays a plain bearer token and the resource server
+        serves it — possession is authority. If the token is DPoP-bound, the
+        attacker must present a DPoP proof, but it can only sign one with its *own*
+        key (it lacks the client's), so the proof's thumbprint cannot match the
+        token's ``cnf.jkt`` and the resource server rejects the replay. Returns
+        ``{"got_resource": bool, "at_seq": int}``.
+        """
+        token = self._access_token
+        assert token is not None, "replay_token called before capture_token"
+        bound = bool((crypto.decode_claims_unverified(token).get("cnf") or {}).get("jkt"))
+
+        if bound:
+            # The attacker forges a proof with a key it controls — but its
+            # thumbprint will not equal the token's cnf.jkt.
+            attacker_key = crypto.DpopKey.generate()
+            headers = {
+                "Authorization": f"DPoP {token}",
+                "DPoP": crypto.create_dpop_proof(
+                    attacker_key, htm="GET", htu=self.env.resource_url
+                ),
+            }
+        else:
+            headers = {"Authorization": f"Bearer {token}"}
+        request = {"url": self.env.resource_url, "headers": headers}
+
+        with acting(on_behalf_of="attacker", source_actor="attacker"):
+            result = resource_server.get_resource(request)
+        got = bool(result.get("ok"))
+        rs_seq = result.get("seq")
+
+        if got:
+            seq = self.recorder.emit(
+                actor="attacker",
+                phase="resource",
+                summary="Attacker reads the victim's resource with the stolen token.",
+                detail=(
+                    "The token is a plain bearer token, so the resource server "
+                    "requires nothing but possession. The attacker replays it from "
+                    "its own machine and the resource server returns the victim's "
+                    "protected data — a stolen bearer token works anywhere."
+                ),
+                outcome="attack_success",
+                refs=[rs_seq] if rs_seq is not None else [self.recorder.last_seq],
+                knowledge_delta={
+                    "attacker": KnowledgeState(has=["victim_resource"]),
+                },
+                spec_refs=[SpecRef(rfc="RFC 9449", section="§1")],
+            )
+            return {"got_resource": True, "at_seq": seq, "rs_seq": rs_seq}
+
+        seq = self.recorder.emit(
+            actor="attacker",
+            phase="resource",
+            summary="Attacker's replay of the sender-constrained token is rejected.",
+            detail=(
+                "The token is DPoP-bound (cnf.jkt). The attacker holds the token "
+                "bytes but not the client's private key, so the proof it can craft "
+                "is signed by a different key whose thumbprint does not match "
+                "cnf.jkt. The resource server's key-binding check fails and no "
+                "resource is returned — sender-constraining makes a stolen token "
+                "worthless off the client's key."
+            ),
+            outcome="attack_blocked",
+            refs=[rs_seq] if rs_seq is not None else [self.recorder.last_seq],
+            http=HttpExchange(
+                request=HttpMessage(method="GET", url=self.env.resource_url),
+                response=HttpMessage(status=401, body={"error": "invalid_dpop_proof"}),
+                highlight=["response.body.error"],
+                source_actor="resource_server",
+                target_actor="attacker",
+            ),
+            spec_refs=[SpecRef(rfc="RFC 9449", section="§7.1")],
+        )
+        return {"got_resource": False, "at_seq": rs_seq, "rs_seq": rs_seq}
+
     # --- CSRF / cross-session code injection (RFC 6749 §10.12) -------------
 
     def stage_csrf_injection(self, code: str, *, obtained_from_seq: int) -> Dict[str, Any]:

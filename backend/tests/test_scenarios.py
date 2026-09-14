@@ -109,12 +109,20 @@ def test_single_use_code_is_enforced(happy_trace):
 
 
 def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
-    # A later-phase capability (dpop, Phase 6) is still refused.
+    # A later-phase capability (issuer_id, Phase 7) is still refused.
     with pytest.raises(UnsupportedScenario):
         run(
             ScenarioConfig(
                 grant="authorization_code",
-                capabilities={"dpop": FeatureState(active=True)},
+                capabilities={"issuer_id": FeatureState(active=True)},
+            )
+        )
+    # A later-phase attack (phishing, Phase 7) is still refused.
+    with pytest.raises(UnsupportedScenario):
+        run(
+            ScenarioConfig(
+                grant="authorization_code",
+                attacks={"phishing": FeatureState(active=True)},
             )
         )
     # The static-secret leak is a client-credentials attack; there is no runner for
@@ -126,8 +134,7 @@ def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
                 attacks={"static_secret_leak": FeatureState(active=True)},
             )
         )
-    # Grants with no runner yet (jwt_bearer, implicit) are still unsupported.
-    with pytest.raises(UnsupportedScenario):
-        run(ScenarioConfig(grant="jwt_bearer"))
+    # 'implicit' is the one GRANTS entry with no runner yet (authorization_code,
+    # client_credentials, and jwt_bearer are all live by Phase 6).
     with pytest.raises(UnsupportedScenario):
         run(ScenarioConfig(grant="implicit"))

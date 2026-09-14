@@ -164,6 +164,23 @@ TRACE_FIXTURES: List[Tuple[str, str, ScenarioConfig]] = [
             atks={"static_secret_leak": FeatureState(active=True)},
         ),
     ),
+    # Phase 6 — DPoP sender-constrained tokens + token replay.
+    (
+        "token_replay_bearer",
+        "tokenReplayBearer.json",
+        _cfg(
+            caps={"dpop": FeatureState(active=False)},
+            atks={"token_replay": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "token_replay_dpop",
+        "tokenReplayDpop.json",
+        _cfg(
+            caps={"dpop": FeatureState(active=True)},
+            atks={"token_replay": FeatureState(active=True)},
+        ),
+    ),
 ]
 
 # The paired-diff fixtures (a CompareResponse each, not a Trace):
@@ -227,6 +244,18 @@ COMPARE_FIXTURES: List[Tuple[str, str, ScenarioConfig, ScenarioConfig]] = [
                 )
             },
             atks={"static_secret_leak": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "token_replay_compare",
+        "tokenReplayCompare.json",
+        _cfg(
+            caps={"dpop": FeatureState(active=False)},
+            atks={"token_replay": FeatureState(active=True)},
+        ),
+        _cfg(
+            caps={"dpop": FeatureState(active=True)},
+            atks={"token_replay": FeatureState(active=True)},
         ),
     ),
 ]

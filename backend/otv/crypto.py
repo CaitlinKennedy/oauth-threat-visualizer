@@ -11,8 +11,13 @@ Phase 1 adds **real PKCE** (RFC 7636): a per-request ``code_verifier`` and the
 ASCII verifier, base64url without padding), so a code-injection attack that lacks
 the verifier fails because the maths, not a script, says so.
 
-DPoP proofs and JWK thumbprints are introduced in later phases; this module
-intentionally stays scoped to what Phases 0–1 exercise.
+Phase 6 adds **real DPoP** (RFC 9449): a proof-of-possession EC keypair (ES256),
+the JWK SHA-256 thumbprint (RFC 7638) that binds a token via ``cnf.jkt``, and
+genuine DPoP proof JWTs (``htm``/``htu``/``iat``/``jti``) signed by that key and
+verified by the resource server. These are real signatures over real keys, so a
+stolen token dies at the resource server because the attacker cannot produce a
+proof from a key whose thumbprint matches the token's ``cnf.jkt`` — the maths,
+not a script, says so.
 """
 
 from __future__ import annotations
@@ -30,6 +35,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 _ALG = "RS256"
+# DPoP proofs are signed with an EC key over P-256 (RFC 9449 recommends an
+# asymmetric alg the RS accepts; ES256 is the interoperable default).
+_DPOP_ALG = "ES256"
 
 # PKCE code-challenge methods this build understands (RFC 7636 §4.2). ``S256`` is
 # the only method OAuth 2.1 permits; ``plain`` is accepted so a later phase can
@@ -343,3 +351,130 @@ def new_opaque_token(prefix: str = "") -> str:
     """A random, URL-safe opaque value (authorization codes, correlation ids)."""
     raw = _b64url(uuid.uuid4().bytes + uuid.uuid4().bytes)
     return f"{prefix}{raw}" if prefix else raw
+
+
+# --- DPoP: sender-constrained tokens (RFC 9449) ----------------------------
+
+
+def jwk_thumbprint(jwk: Dict[str, Any]) -> str:
+    """The RFC 7638 JWK SHA-256 thumbprint, base64url without padding.
+
+    The thumbprint is computed over the JSON of the key's *required* members in
+    lexicographic order, with no whitespace — so it is a stable, canonical
+    fingerprint of the public key. This is exactly the value an access token
+    carries in ``cnf.jkt`` to bind itself to a client key (RFC 9449 §6).
+    """
+    kty = jwk.get("kty")
+    if kty == "EC":
+        canonical = {"crv": jwk["crv"], "kty": "EC", "x": jwk["x"], "y": jwk["y"]}
+    elif kty == "RSA":
+        canonical = {"e": jwk["e"], "kty": "RSA", "n": jwk["n"]}
+    else:
+        raise ValueError(f"unsupported JWK kty {kty!r} for thumbprint")
+    data = json.dumps(canonical, separators=(",", ":"), sort_keys=True).encode("ascii")
+    return _b64url(hashlib.sha256(data).digest())
+
+
+@dataclass
+class DpopKey:
+    """A client proof-of-possession keypair for DPoP (RFC 9449), ES256/P-256.
+
+    The private half never leaves the client; the public half is embedded in each
+    proof (the ``jwk`` header) and its thumbprint is what the token is bound to.
+    Possessing a DPoP-bound token is therefore worthless without this private key —
+    which is precisely why a stolen token fails at the resource server.
+    """
+
+    _private_pem: bytes
+
+    @classmethod
+    def generate(cls) -> "DpopKey":
+        key = ec.generate_private_key(ec.SECP256R1())
+        pem = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        return cls(_private_pem=pem)
+
+    def _private_key_obj(self):
+        return serialization.load_pem_private_key(self._private_pem, password=None)
+
+    def public_jwk(self) -> Dict[str, Any]:
+        """The public key as a minimal EC JWK (``kty``/``crv``/``x``/``y``)."""
+        jwk = json.loads(
+            jwt.algorithms.ECAlgorithm.to_jwk(self._private_key_obj().public_key())
+        )
+        return {"kty": jwk["kty"], "crv": jwk["crv"], "x": jwk["x"], "y": jwk["y"]}
+
+    def thumbprint(self) -> str:
+        """This key's RFC 7638 thumbprint — the value bound into ``cnf.jkt``."""
+        return jwk_thumbprint(self.public_jwk())
+
+
+def create_dpop_proof(
+    key: DpopKey,
+    *,
+    htm: str,
+    htu: str,
+    iat: int | None = None,
+    jti: str | None = None,
+) -> str:
+    """Create a real DPoP proof JWT for one HTTP request (RFC 9449 §4.2).
+
+    The proof is signed with ``key`` and carries the HTTP method (``htm``), the
+    target URI (``htu``), an issued-at (``iat``) and a unique id (``jti``); its
+    header declares ``typ=dpop+jwt`` and embeds the public ``jwk``. The resource
+    server recomputes the thumbprint of that embedded key and requires it to equal
+    the token's ``cnf.jkt``.
+    """
+    now = iat if iat is not None else int(time.time())
+    claims = {
+        "jti": jti or uuid.uuid4().hex,
+        "htm": htm,
+        "htu": htu,
+        "iat": now,
+    }
+    return jwt.encode(
+        claims,
+        key._private_pem,
+        algorithm=_DPOP_ALG,
+        headers={"typ": "dpop+jwt", "jwk": key.public_jwk()},
+    )
+
+
+def verify_dpop_proof(proof: str, *, htm: str, htu: str) -> Dict[str, Any]:
+    """Verify a DPoP proof's signature and ``htm``/``htu`` (RFC 9449 §4.3).
+
+    Uses the proof's own embedded ``jwk`` to check the signature (the key claims
+    itself; the binding to the token is enforced separately, by comparing the
+    returned ``jkt`` to the token's ``cnf.jkt``). Requires the ``dpop+jwt`` type,
+    the four registered proof claims, and an exact method/URI match. Raises a
+    ``jwt.PyJWTError`` subclass on any failure; returns
+    ``{"jkt": <thumbprint>, "claims": {...}, "jwk": {...}}`` on success.
+    """
+    header = jwt.get_unverified_header(proof)
+    typ = str(header.get("typ") or "").strip().lower()
+    if typ != "dpop+jwt":
+        raise jwt.InvalidTokenError(
+            f"unexpected DPoP proof typ {header.get('typ')!r}; expected dpop+jwt"
+        )
+    jwk = header.get("jwk")
+    if not isinstance(jwk, dict) or not jwk:
+        raise jwt.InvalidTokenError("DPoP proof header is missing an embedded jwk")
+    public_key = jwt.algorithms.ECAlgorithm.from_jwk(json.dumps(jwk))
+    claims = jwt.decode(
+        proof,
+        public_key,
+        algorithms=[_DPOP_ALG],
+        options={"require": ["htm", "htu", "iat", "jti"]},
+    )
+    if claims.get("htm") != htm:
+        raise jwt.InvalidTokenError(
+            f"DPoP htm mismatch: proof {claims.get('htm')!r} != request {htm!r}"
+        )
+    if claims.get("htu") != htu:
+        raise jwt.InvalidTokenError(
+            f"DPoP htu mismatch: proof {claims.get('htu')!r} != request {htu!r}"
+        )
+    return {"jkt": jwk_thumbprint(jwk), "claims": claims, "jwk": jwk}

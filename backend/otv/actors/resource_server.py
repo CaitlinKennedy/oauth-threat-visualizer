@@ -50,8 +50,17 @@ class ResourceServerImpl(ResourceServer):
         self._auth_server = auth_server
 
     def get_resource(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        auth_header = request.get("headers", {}).get("Authorization", "")
-        token = auth_header[len("Bearer ") :] if auth_header.startswith("Bearer ") else ""
+        headers = request.get("headers", {})
+        auth_header = headers.get("Authorization", "")
+        # A token is presented under the ``Bearer`` scheme, or — when it is
+        # sender-constrained — under the ``DPoP`` scheme (RFC 9449 §7.1). Extract
+        # it either way; the bearer path below is unchanged.
+        if auth_header.startswith("Bearer "):
+            token = auth_header[len("Bearer ") :]
+        elif auth_header.startswith("DPoP "):
+            token = auth_header[len("DPoP ") :]
+        else:
+            token = ""
 
         # The peer presenting the token (ambient request scope). Defaults to the
         # legitimate client so the happy path is unchanged; an attacker replaying a
@@ -119,6 +128,87 @@ class ResourceServerImpl(ResourceServer):
 
         if not valid:
             return {"ok": False, "resource": None, "seq": check_seq}
+
+        # DPoP key binding (RFC 9449 §7.1). A token that carries a ``cnf.jkt`` is
+        # sender-constrained: the caller must also present a valid DPoP proof whose
+        # key thumbprint equals that ``cnf.jkt``. A plain bearer token has no
+        # ``cnf``, so this branch is skipped entirely and the bearer path is
+        # unchanged. This is the decisive place a stolen sender-constrained token
+        # fails — the attacker holds the token but not the client's private key.
+        bound_jkt = (claims.get("cnf") or {}).get("jkt")
+        if bound_jkt:
+            proof = headers.get("DPoP")
+            presented_jkt: Optional[str] = None
+            dpop_ok = False
+            failure = None
+            try:
+                if not proof:
+                    raise jwt.InvalidTokenError("no DPoP proof presented")
+                bound = crypto.verify_dpop_proof(
+                    proof, htm="GET", htu=self.config.resource_url
+                )
+                presented_jkt = bound["jkt"]
+                dpop_ok = presented_jkt == bound_jkt
+                if not dpop_ok:
+                    failure = "jkt_mismatch"
+            except jwt.PyJWTError as exc:
+                failure = type(exc).__name__
+
+            dpop_seq = self.recorder.emit(
+                actor="resource_server",
+                phase="resource",
+                summary="Resource server verifies the DPoP key binding.",
+                detail=(
+                    "The access token is sender-constrained: it carries a cnf.jkt "
+                    "naming the thumbprint of the client's DPoP key. The resource "
+                    "server checks the DPoP proof on this request — its signature "
+                    "against the public key embedded in the proof, and that the "
+                    "SHA-256 thumbprint of that key equals the token's cnf.jkt. Only "
+                    "the holder of the matching private key can produce such a proof, "
+                    "so a token replayed by anyone else is rejected here."
+                ),
+                outcome="ok" if dpop_ok else "blocked",
+                refs=[check_seq],
+                http=HttpExchange(
+                    request=HttpMessage(
+                        method="GET",
+                        url=self.config.resource_url,
+                        headers={
+                            "Authorization": "DPoP <access_token>",
+                            "DPoP": "<dpop_proof>",
+                        },
+                    ),
+                    response=HttpMessage(
+                        status=200 if dpop_ok else 401,
+                        body={"dpop": "bound"}
+                        if dpop_ok
+                        else {"error": "invalid_dpop_proof"},
+                    ),
+                    highlight=["request.headers.DPoP"],
+                    source_actor=peer,
+                    target_actor="resource_server",
+                ),
+                check=Check(
+                    name="dpop_binding",
+                    rule="verify DPoP proof signature AND jwk_thumbprint(proof.jwk) == token cnf.jkt",
+                    expected=bound_jkt,
+                    actual=presented_jkt
+                    if presented_jkt is not None
+                    else f"no matching key ({failure})",
+                    result="PASS" if dpop_ok else "FAIL",
+                    spec_ref=SpecRef(rfc="RFC 9449", section="§7.1"),
+                ),
+                knowledge_delta={
+                    "resource_server": KnowledgeState(
+                        has=["token_bound_to_presented_key"]
+                    )
+                    if dpop_ok
+                    else KnowledgeState(lacks=["proof_of_possession"]),
+                },
+                spec_refs=[SpecRef(rfc="RFC 9449", section="§7.1")],
+            )
+            if not dpop_ok:
+                return {"ok": False, "resource": None, "seq": dpop_seq}
 
         # Bind the response to the token's subject: look up that user's profile in
         # the RS's own store. A token whose sub the RS does not recognize gets a

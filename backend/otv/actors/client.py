@@ -70,6 +70,7 @@ class ClientImpl(Client):
         pkce_method: Optional[str] = None,
         registered_client=None,
         enforce_state: bool = False,
+        dpop: bool = False,
     ):
         self.recorder = recorder
         self.env = env
@@ -94,6 +95,11 @@ class ClientImpl(Client):
             self.code_verifier = crypto.new_code_verifier()
             self.code_challenge = crypto.code_challenge_for(self.code_verifier, pkce_method)
         self._access_token: Optional[str] = None
+        # DPoP (RFC 9449): when active, the client holds a proof-of-possession key.
+        # It presents a DPoP proof with the token exchange (so the AS binds the
+        # token to this key via cnf.jkt) and with every resource call. The private
+        # key never leaves the client — that secrecy is what defeats token replay.
+        self.dpop_key: Optional[crypto.DpopKey] = crypto.DpopKey.generate() if dpop else None
         # The seq of this client's own authorization request, remembered so the
         # redirect-receipt step can causally reference it without the seq being
         # passed across the interface.
@@ -244,6 +250,12 @@ class ClientImpl(Client):
             # Present the secret verifier now, over the back channel, so the AS can
             # recompute the challenge and confirm this is the same client instance.
             token_request["code_verifier"] = self.code_verifier
+        if self.dpop_key is not None:
+            # A DPoP proof for the token endpoint (htm=POST, htu=token URL). The AS
+            # binds the issued token to this key's thumbprint (cnf.jkt).
+            token_request["dpop"] = crypto.create_dpop_proof(
+                self.dpop_key, htm="POST", htu=self.env.token_url
+            )
         # Real back-channel call through the AuthServer *interface* (pure protocol:
         # no trace-plumbing crosses the seam).
         token_response = auth_server.token(token_request)
@@ -268,9 +280,22 @@ class ClientImpl(Client):
     def access_resource(self, *, resource_server: "ResourceServer") -> Dict[str, Any]:
         if self._access_token is None:
             raise RuntimeError("access_resource called before a token was obtained")
-        request = {
-            "url": self.env.resource_url,
-            "headers": {"Authorization": f"Bearer {self._access_token}"},
-        }
+        if self.dpop_key is not None:
+            # A sender-constrained call: present the token under the DPoP scheme and
+            # a fresh proof (htm=GET, htu=resource URL) the RS binds to the token.
+            request = {
+                "url": self.env.resource_url,
+                "headers": {
+                    "Authorization": f"DPoP {self._access_token}",
+                    "DPoP": crypto.create_dpop_proof(
+                        self.dpop_key, htm="GET", htu=self.env.resource_url
+                    ),
+                },
+            }
+        else:
+            request = {
+                "url": self.env.resource_url,
+                "headers": {"Authorization": f"Bearer {self._access_token}"},
+            }
         # Real call through the ResourceServer *interface*.
         return resource_server.get_resource(request)
