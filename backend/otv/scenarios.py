@@ -3,9 +3,7 @@
 The capability/attack *catalog* lives in :mod:`otv.registry` (served by
 ``GET /api/catalog``); this module holds the presets that map to the four
 learning flows (served by ``GET /api/scenarios``). Each preset is a ready-made
-``RunConfig`` in the frozen open-map wire shape. Only flow 1 (the clean
-authorization-code happy path) is runnable in Phase 0; later flows are listed
-with ``available: false`` so the roadmap is visible.
+``RunConfig`` in the frozen open-map wire shape, and every one is runnable.
 """
 
 from __future__ import annotations
@@ -32,7 +30,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {},
             "attacks": {},
         },
-        "available": True,
     },
     {
         "id": "injection_no_pkce",
@@ -49,7 +46,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {"pkce": {"active": False}},
             "attacks": {"auth_code_injection": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         "id": "injection_pkce",
@@ -66,7 +62,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {"pkce": {"active": True, "params": {"method": "S256"}}},
             "attacks": {"auth_code_injection": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         # The primary gesture (DESIGN.md §8): flip PKCE and watch flow 2 and flow 3
@@ -98,7 +93,6 @@ PRESETS: List[Dict[str, Any]] = [
                 "attacks": {"auth_code_injection": {"active": True, "params": {}}},
             },
         },
-        "available": True,
     },
     {
         "id": "csrf_no_state",
@@ -116,7 +110,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {"state": {"active": False}},
             "attacks": {"csrf_code_injection": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         "id": "csrf_state",
@@ -134,7 +127,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {"state": {"active": True}},
             "attacks": {"csrf_code_injection": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         # The flow-2↔3 gesture for CSRF: flip 'state' and watch the injection go
@@ -165,7 +157,6 @@ PRESETS: List[Dict[str, Any]] = [
                 "attacks": {"csrf_code_injection": {"active": True, "params": {}}},
             },
         },
-        "available": True,
     },
     {
         "id": "replay",
@@ -182,7 +173,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {},
             "attacks": {"code_token_replay": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         "id": "jwt_bearer_happy",
@@ -201,7 +191,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {},
             "attacks": {},
         },
-        "available": True,
     },
     {
         "id": "token_replay_bearer",
@@ -219,7 +208,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {"dpop": {"active": False}},
             "attacks": {"token_replay": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         "id": "client_credentials_secret",
@@ -239,7 +227,6 @@ PRESETS: List[Dict[str, Any]] = [
             },
             "attacks": {},
         },
-        "available": True,
     },
     {
         "id": "assertion_replay_no_protection",
@@ -258,7 +245,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {"assertion_replay_protection": {"active": False}},
             "attacks": {"assertion_replay": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         "id": "token_replay_dpop",
@@ -277,7 +263,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {"dpop": {"active": True}},
             "attacks": {"token_replay": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         "id": "client_credentials_jwt",
@@ -297,7 +282,6 @@ PRESETS: List[Dict[str, Any]] = [
             },
             "attacks": {},
         },
-        "available": True,
     },
     {
         "id": "assertion_replay_protected",
@@ -315,7 +299,6 @@ PRESETS: List[Dict[str, Any]] = [
             "capabilities": {"assertion_replay_protection": {"active": True}},
             "attacks": {"assertion_replay": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         "id": "static_secret_leak_secret",
@@ -335,7 +318,6 @@ PRESETS: List[Dict[str, Any]] = [
             },
             "attacks": {"static_secret_leak": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         # The flow-2↔3 gesture for the JWT bearer grant: flip replay protection and
@@ -368,7 +350,6 @@ PRESETS: List[Dict[str, Any]] = [
                 "attacks": {"assertion_replay": {"active": True, "params": {}}},
             },
         },
-        "available": True,
     },
     {
         "id": "static_secret_leak_jwt",
@@ -389,7 +370,6 @@ PRESETS: List[Dict[str, Any]] = [
             },
             "attacks": {"static_secret_leak": {"active": True, "params": {}}},
         },
-        "available": True,
     },
     {
         # The flow-2↔3 gesture for client authentication: run the identical leak with
@@ -429,7 +409,6 @@ PRESETS: List[Dict[str, Any]] = [
                 "attacks": {"static_secret_leak": {"active": True, "params": {}}},
             },
         },
-        "available": True,
     },
     {
         # The flow-2↔3 gesture for DPoP: flip 'dpop' and watch the stolen token go
@@ -461,7 +440,6 @@ PRESETS: List[Dict[str, Any]] = [
                 "attacks": {"token_replay": {"active": True, "params": {}}},
             },
         },
-        "available": True,
     },
 ]
 

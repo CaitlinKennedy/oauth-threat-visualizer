@@ -1,4 +1,4 @@
-"""Client-credentials grant + client-authentication methods (Phase 5).
+"""Client-credentials grant + client-authentication methods.
 
 Two self-registering runners live here, both keyed off ``grant ==
 "client_credentials"``:
@@ -54,7 +54,7 @@ from . import Runner, register
 from .support import CHECK_TO_CAPABILITY, event_at, new_run_id
 
 # The registered machine-to-machine (confidential) client. Its facts live here
-# rather than in the shared environment because they are specific to this phase:
+# rather than in the shared environment because they are specific to this grant:
 # a client-credentials principal with a static secret AND a registered public key
 # for private_key_jwt. In a real deployment these are the client's registration
 # metadata at the authorization server.
@@ -82,7 +82,7 @@ def client_auth_method(config: ScenarioConfig) -> str:
 # --- Real private_key_jwt key material (RFC 7523 §2.2) ---------------------
 #
 # The client's key and its client_assertion sign/verify are the SAME canonical
-# helpers the JWT bearer grant (Phase 4) uses — ``crypto.SigningKey`` /
+# helpers the JWT bearer grant uses — ``crypto.SigningKey`` /
 # ``crypto.sign_assertion`` / ``crypto.verify_assertion`` — just generated as an
 # EC (ES256) key instead of RSA, since ``key.alg`` travels with the key and both
 # functions key off it. See ``otv/crypto.py`` for the shared implementation.
@@ -122,9 +122,9 @@ def _basic_header(client_id: str, secret: str) -> str:
 
 
 # --- The client-credentials token endpoint (real, self-contained) ----------
-# Kept local to this phase's runner so the shared AuthServer (whose token()
-# endpoint is authorization-code specific) is not edited. It signs REAL RS256
-# access tokens and verifies client authentication for real.
+# Kept local to this runner so the shared AuthServer (whose token() endpoint is
+# authorization-code specific) is not edited. It signs REAL RS256 access tokens
+# and verifies client authentication for real.
 
 
 class M2MTokenEndpoint:
@@ -620,5 +620,5 @@ def _leak_blocked_verdict(recorder: Recorder, method: str, at_seq: Optional[int]
     )
 
 
-register(Runner(id="client_credentials", matches=_matches_happy, run=_run_happy))
-register(Runner(id="static_secret_leak", matches=_matches_leak, run=_run_leak))
+register(Runner(id="client_credentials", matches=_matches_happy, run=_run_happy, order=70))
+register(Runner(id="static_secret_leak", matches=_matches_leak, run=_run_leak, order=80))

@@ -16,7 +16,7 @@ capability(
     label="state parameter",
     description="Bind the response to the user's session (anti-CSRF).",
     spec_ref=SpecRef(rfc="RFC 6749", section="§10.12"),
-    phase=2,
+    order=20,
     applies_to_grants=["authorization_code"],
     # The first-class check this capability's own enforcement emits (see
     # engine.runners.support.CHECK_TO_CAPABILITY, derived by scanning this).

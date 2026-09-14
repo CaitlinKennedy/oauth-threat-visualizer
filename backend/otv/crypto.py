@@ -1,17 +1,17 @@
 """Real cryptographic primitives for the OAuth actors.
 
-Phase 0 needs genuine asymmetric key material and real JWS signing and
-verification for access tokens: the authorization server signs a JWT with a
-generated RSA key and publishes the public half as a JWKS; the resource server
-verifies the signature against that JWKS. No security-relevant step is mocked.
+Access tokens need genuine asymmetric key material and real JWS signing and
+verification: the authorization server signs a JWT with a generated RSA key and
+publishes the public half as a JWKS; the resource server verifies the signature
+against that JWKS. No security-relevant step is mocked.
 
-Phase 1 adds **real PKCE** (RFC 7636): a per-request ``code_verifier`` and the
+**Real PKCE** (RFC 7636): a per-request ``code_verifier`` and the
 ``code_challenge`` derived from it via S256, plus the token-endpoint verification
 ``S256(code_verifier) == code_challenge``. These are genuine (SHA-256 over the
 ASCII verifier, base64url without padding), so a code-injection attack that lacks
 the verifier fails because the maths, not a script, says so.
 
-Phase 6 adds **real DPoP** (RFC 9449): a proof-of-possession EC keypair (ES256),
+**Real DPoP** (RFC 9449): a proof-of-possession EC keypair (ES256),
 the JWK SHA-256 thumbprint (RFC 7638) that binds a token via ``cnf.jkt``, and
 genuine DPoP proof JWTs (``htm``/``htu``/``iat``/``jti``) signed by that key and
 verified by the resource server. These are real signatures over real keys, so a
@@ -40,8 +40,8 @@ _ALG = "RS256"
 _DPOP_ALG = "ES256"
 
 # PKCE code-challenge methods this build understands (RFC 7636 §4.2). ``S256`` is
-# the only method OAuth 2.1 permits; ``plain`` is accepted so a later phase can
-# contrast it, but the presets use S256.
+# the only method OAuth 2.1 permits; ``plain`` is accepted for contrast, but the
+# presets use S256.
 PKCE_METHODS = ("S256", "plain")
 
 
@@ -313,9 +313,9 @@ def sign_assertion(
     """Sign a real JWT assertion (RFC 7523 §3) with ``key``'s own algorithm.
 
     The canonical assertion helper for BOTH uses in this codebase: the JWT
-    bearer grant's user assertion (Phase 4, an RS256 ``SigningKey``) and
-    ``private_key_jwt`` client authentication's ``client_assertion`` (Phase 5,
-    an ES256 ``SigningKey``) — the claim shape and the one-time/short-lived
+    bearer grant's user assertion (an RS256 ``SigningKey``) and
+    ``private_key_jwt`` client authentication's ``client_assertion`` (an ES256
+    ``SigningKey``) — the claim shape and the one-time/short-lived
     properties that defeat replay are identical either way; only the key type
     differs, and that travels with ``key.alg``.
 

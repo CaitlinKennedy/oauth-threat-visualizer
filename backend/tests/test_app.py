@@ -29,34 +29,29 @@ def test_health(client):
     assert r.get_json()["status"] == "ok"
 
 
-def test_catalog_exposes_new_fields_and_phases(client):
+def test_catalog_exposes_feature_metadata(client):
     cat = client.get("/api/catalog").get_json()
     by_id = {i["id"]: i for i in [*cat["capabilities"], *cat["attacks"]]}
     for item in by_id.values():
-        for key in ("applies_to_grants", "implies", "forbids", "available"):
+        for key in ("applies_to_grants", "implies", "forbids"):
             assert key in item
-    # Corrected phase numbers (IMPLEMENTATION.md §6–§7).
-    assert by_id["pkce"]["phase"] == 1
-    assert by_id["state"]["phase"] == 2
-    assert by_id["static_secret_leak"]["phase"] == 5
-    assert by_id["dpop"]["phase"] == 6
-    assert by_id["issuer_id"]["phase"] == 7
+        # The catalog just lists features — no gating fields.
+        assert "phase" not in item and "available" not in item
     assert by_id["pkce"]["applies_to_grants"] == ["authorization_code"]
-    # CURRENT_PHASE = 6 → the earlier phases (pkce/injection, state/replay/CSRF,
-    # assertion replay, client_auth/static-secret-leak) plus dpop / token replay
-    # are available; only Phase 7's issuer-id / phishing chain is not.
-    assert by_id["pkce"]["available"] is True
-    assert by_id["auth_code_injection"]["available"] is True
-    assert by_id["state"]["available"] is True
-    assert by_id["code_token_replay"]["available"] is True
-    assert by_id["csrf_code_injection"]["available"] is True
-    assert by_id["assertion_replay_protection"]["available"] is True
-    assert by_id["assertion_replay"]["available"] is True
-    assert by_id["client_auth"]["available"] is True
-    assert by_id["static_secret_leak"]["available"] is True
-    assert by_id["dpop"]["available"] is True
-    assert by_id["token_replay"]["available"] is True
-    assert by_id["issuer_id"]["available"] is False
+    # Every shipped capability/attack is listed and usable.
+    assert {
+        "pkce",
+        "auth_code_injection",
+        "state",
+        "code_token_replay",
+        "csrf_code_injection",
+        "assertion_replay_protection",
+        "assertion_replay",
+        "client_auth",
+        "static_secret_leak",
+        "dpop",
+        "token_replay",
+    } <= set(by_id)
 
 
 def test_run_happy_path_returns_live_trace(client):
@@ -85,8 +80,8 @@ def test_run_malformed_body_is_400_json_not_500(client, payload):
 
 def test_run_unsupported_config_is_not_a_fake_success(client):
     # A grant that isn't implemented must NOT return a happy-path success.
-    # (authorization_code, client_credentials, and jwt_bearer are all live by
-    # Phase 6; 'implicit' is the one GRANTS entry still unimplemented.)
+    # (authorization_code, client_credentials, and jwt_bearer all have runners;
+    # 'implicit' is the one GRANTS entry with no runner.)
     r = client.post("/api/run", json={"config": {"grant": "implicit"}})
     assert r.status_code == 501
     body = r.get_json()
@@ -95,14 +90,14 @@ def test_run_unsupported_config_is_not_a_fake_success(client):
     assert "verdict" not in body
 
 
-def test_run_unsupported_capability_is_flagged(client):
-    # 'issuer_id' is Phase 7, so it must still be flagged not-available at Phase 6.
+def test_run_unknown_capability_is_flagged(client):
+    # A capability id that isn't in the registry must be refused, not ignored.
     r = client.post(
         "/api/run",
         json={
             "config": {
                 "grant": "authorization_code",
-                "capabilities": {"issuer_id": {"active": True}},
+                "capabilities": {"no_such_capability": {"active": True}},
             }
         },
     )
@@ -151,7 +146,7 @@ def test_compare_token_replay_diverges_at_dpop_binding(client):
 
 
 def test_run_pkce_happy_path_returns_live_trace(client):
-    # PKCE is available in Phase 1: a happy-path run with PKCE on must succeed.
+    # A happy-path run with PKCE on must succeed.
     r = client.post(
         "/api/run",
         json={

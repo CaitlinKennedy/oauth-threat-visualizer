@@ -111,4 +111,4 @@ def _verdict(
     )
 
 
-register(Runner(id="code_token_replay", matches=_matches, run=_run))
+register(Runner(id="code_token_replay", matches=_matches, run=_run, order=30))

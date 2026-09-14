@@ -11,12 +11,14 @@ is that **every mitigation is a binding** — PKCE binds the code to the client
 instance, `state` binds the response to the session, and so on — and every attack
 is an attempt to use something whose binding the attacker cannot satisfy.
 
-> This is the first vertical slice: the clean OAuth 2.0 **Authorization Code**
-> happy path, end to end. Later phases add capabilities (PKCE, `state`, DPoP, …)
-> and real attacks (auth-code injection, replay, phishing chains) so you can
-> toggle a mitigation and watch the same attack fail at one highlighted step.
+> It spans the clean OAuth 2.0 **Authorization Code** happy path, the
+> client-credentials and JWT-bearer grants, capabilities (PKCE, `state`, client
+> authentication, DPoP, assertion-replay protection) and real attacks (auth-code
+> injection, CSRF, code/token replay, static-secret leak, assertion replay) — so
+> you can toggle a mitigation and watch the same attack fail at one highlighted
+> step.
 
-## What you can do today
+## What you can do
 
 - Watch the authorization-code flow play out step by step, or in one-click
   "video" mode.

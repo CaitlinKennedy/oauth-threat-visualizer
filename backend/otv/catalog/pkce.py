@@ -10,7 +10,7 @@ capability(
     label="PKCE",
     description="Bind the authorization code to a per-request verifier (S256).",
     spec_ref=SpecRef(rfc="RFC 7636", section="§4"),
-    phase=1,
+    order=10,
     applies_to_grants=["authorization_code"],
     # The first-class check this capability's own enforcement emits (see
     # engine.runners.support.CHECK_TO_CAPABILITY, derived by scanning this).

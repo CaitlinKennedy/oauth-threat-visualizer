@@ -3,8 +3,8 @@
 Small utilities several runners need — resolving the active PKCE method, mapping a
 failing ``check`` to the capability that owns it, looking up a step by ``seq``,
 and driving the honest client through a full authorization-code flow. Keeping
-these here (rather than in any one runner) is what lets a later phase's runner
-reuse them without importing another runner.
+these here (rather than in any one runner) is what lets any runner reuse them
+without importing another runner.
 """
 
 from __future__ import annotations

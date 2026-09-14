@@ -14,8 +14,8 @@ actor to a standalone REST service later is an impl/transport swap with no chang
 to this orchestration, the contract, or the UI.
 
 **Extension point.** The conductor no longer knows the individual scenarios: it
-dispatches to whichever runner matches the config. A later phase adds a scenario
-by dropping a self-registering module in :mod:`otv.engine.runners` — never by
+dispatches to whichever runner matches the config. A new scenario is added by
+dropping a self-registering module in :mod:`otv.engine.runners` — never by
 editing a branch here. Anything no runner matches raises
 :class:`UnsupportedScenario`, which the API turns into an explicit "not available"
 response (never a fake success).
@@ -34,7 +34,7 @@ class UnsupportedScenario(Exception):
 
 def run(config: ScenarioConfig) -> Trace:
     """Execute ``config`` via its matching runner and return a validated Trace."""
-    _reject_unavailable_features(config)
+    _reject_unsupported_features(config)
     runner = runners.select(config)
     if runner is None:
         raise UnsupportedScenario(_why_unsupported(config))
@@ -51,17 +51,16 @@ def _why_unsupported(config: ScenarioConfig) -> str:
     return "no runner matches this scenario config"
 
 
-def _reject_unavailable_features(config: ScenarioConfig) -> None:
-    """Reject any active capability/attack that this build does not implement.
+def _reject_unsupported_features(config: ScenarioConfig) -> None:
+    """Reject any active capability/attack this build cannot honor.
 
-    Prevents config and trace from disagreeing: if a caller turns on a feature the
-    registry marks not-yet-available, we refuse the run rather than silently
-    ignore the toggle and emit a trace that contradicts the requested config.
-    Also rejects a feature that doesn't apply to the requested grant at all
-    (e.g. an authorization-code-only attack under ``client_credentials``) — the
-    picker hides these, but a hand-built config could still request one, which
-    would otherwise fall through to whichever runner matches on other grounds
-    and hand back a trace that disagrees with the request.
+    Prevents config and trace from disagreeing. An unknown id (nothing in the
+    registry) is refused outright. A known feature that doesn't apply to the
+    requested grant at all (e.g. an authorization-code-only attack under
+    ``client_credentials``) is refused too — the picker hides these, but a
+    hand-built config could still request one, which would otherwise fall through
+    to whichever runner matches on other grounds and hand back a trace that
+    disagrees with the request.
     """
     for kind, active in (
         ("capability", config.active_capabilities()),
@@ -71,10 +70,6 @@ def _reject_unavailable_features(config: ScenarioConfig) -> None:
             item = registry.get(fid)
             if item is None:
                 raise UnsupportedScenario(f"unknown {kind} {fid!r}")
-            if not item.available:
-                raise UnsupportedScenario(
-                    f"{kind} {fid!r} is not implemented until phase {item.phase}"
-                )
             if item.applies_to_grants and config.grant not in item.applies_to_grants:
                 raise UnsupportedScenario(
                     f"{kind} {fid!r} does not apply to grant {config.grant!r}"

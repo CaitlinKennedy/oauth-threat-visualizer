@@ -415,10 +415,6 @@ input:focus-visible,
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
-.scenario-card:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
 .scenario-card .kicker {
   font: 600 10px var(--mono);
   letter-spacing: 0.08em;
@@ -470,10 +466,6 @@ input:focus-visible,
   cursor: pointer;
   color: var(--ink);
   text-align: left;
-}
-.config-row:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 .config-row.selected {
   background: var(--accent-soft);

@@ -30,8 +30,8 @@ PHASES = ("authorize", "redirect", "token", "resource", "introspect")
 # a replayed code that PKCE downgrades to a partial win (DESIGN.md §6).
 OUTCOMES = ("ok", "blocked", "attack_success", "attack_blocked", "partial")
 CHECK_RESULTS = ("PASS", "FAIL")
-# ``implicit`` is present so a later phase can demonstrate the implicit grant and
-# then have the ``oauth_2_1`` meta-capability forbid it; no flow implements it yet.
+# ``implicit`` is a recognized grant with no runner in this build: a run that
+# requests it is refused outright rather than silently handled by another runner.
 GRANTS = ("authorization_code", "client_credentials", "jwt_bearer", "implicit")
 
 
@@ -167,7 +167,7 @@ class FeatureState:
 
     Capabilities and attacks are carried as OPEN id-keyed maps of these state
     objects (never bare booleans, never fixed named fields), so adding a feature
-    in a later phase is a new catalog/registry entry — the wire schema is frozen.
+    is a new catalog/registry entry — the wire schema is frozen.
     """
 
     active: bool = False
@@ -234,7 +234,7 @@ class Trace:
     verdict: Verdict
     events: List[StepEvent] = field(default_factory=list)
     schema_version: str = SCHEMA_VERSION
-    # Reserved for Phase 4 chained attacks (linked sub-traces): both null for a
+    # Reserved for chained attacks (linked sub-traces): both null for a
     # standalone run. Present in v1.0 so chaining needs no schema change.
     parent_id: Optional[str] = None
     chain_id: Optional[str] = None
@@ -254,8 +254,8 @@ class Trace:
 
 # --- Compare / diff response (the flow-2 vs flow-3 gesture) -----------------
 # The SHAPE is frozen here in v1.0; the compare *logic* (running a baseline and a
-# variant and computing where they diverge) arrives in a later phase. Defining
-# the shape now keeps the wire contract stable when that logic lands.
+# variant and computing where they diverge) lives in ``otv.engine.compare``.
+# Defining the shape in the contract keeps the wire stable across changes there.
 
 
 @dataclass

@@ -2,16 +2,16 @@
 
 Each scenario/attack orchestration lives in its own discoverable module here and
 **self-registers** a :class:`Runner` at import time, instead of a growing
-``if/elif`` in the conductor. A runner declares a ``matches(config)`` predicate
-and a ``run(config) -> Trace`` orchestration. :func:`load_all` imports every
-module in this package (filename order); :func:`select` returns the first
-registered runner whose predicate matches a config.
+``if/elif`` in the conductor. A runner declares a ``matches(config)`` predicate,
+a ``run(config) -> Trace`` orchestration, and an explicit ``order``. :func:`select`
+returns the first registered runner (by ascending ``order``, ties broken by id)
+whose predicate matches a config.
 
-**To add a scenario in a later phase:** drop a new module here that builds a
-:class:`Runner` and calls :func:`register` at module scope. Nothing else — the
-conductor discovers it automatically. Filename order (``r<n>_*``) is the
-match-precedence order; matchers are otherwise mutually exclusive (each keys off a
-distinct active attack, and the happy-path runner keys off *no* active attack).
+**To add a scenario:** drop a new module here that builds a :class:`Runner` and
+calls :func:`register` at module scope. Nothing else — the conductor discovers it
+automatically. ``order`` fixes match precedence; matchers are otherwise mutually
+exclusive (each keys off a distinct active attack, and the happy-path runner keys
+off *no* active attack).
 """
 
 from __future__ import annotations
@@ -31,6 +31,9 @@ class Runner:
     id: str
     matches: Callable[[ScenarioConfig], bool]
     run: Callable[[ScenarioConfig], Trace]
+    # Explicit match-precedence position (ascending), ties broken by id. Keeps
+    # selection deterministic and independent of module import order.
+    order: int = 100
 
 
 _RUNNERS: List[Runner] = []
@@ -56,8 +59,9 @@ def load_all() -> None:
 
 
 def all_runners() -> List[Runner]:
+    """Registered runners in match-precedence order (by ``order``, then id)."""
     load_all()
-    return list(_RUNNERS)
+    return sorted(_RUNNERS, key=lambda r: (r.order, r.id))
 
 
 def select(config: ScenarioConfig) -> Optional[Runner]:

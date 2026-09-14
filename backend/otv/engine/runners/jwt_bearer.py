@@ -1,4 +1,4 @@
-"""JWT bearer grant runners (RFC 7523) — the Phase 4 orchestrations.
+"""JWT bearer grant runners (RFC 7523).
 
 Two runners for the ``jwt_bearer`` grant:
 
@@ -181,5 +181,5 @@ def _replay_verdict(
     )
 
 
-register(Runner(id="jwt_bearer_happy", matches=_happy_matches, run=_happy_run))
-register(Runner(id="assertion_replay", matches=_replay_matches, run=_replay_run))
+register(Runner(id="jwt_bearer_happy", matches=_happy_matches, run=_happy_run, order=50))
+register(Runner(id="assertion_replay", matches=_replay_matches, run=_replay_run, order=60))

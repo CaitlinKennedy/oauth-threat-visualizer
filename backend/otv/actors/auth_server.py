@@ -1,7 +1,7 @@
 """The IdP / Authorization Server.
 
 Hand-rolled OAuth 2.0 authorization-code endpoints on real primitives so every
-protocol step and check is ours to instrument. Phase 0 implements:
+protocol step and check is ours to instrument. It implements:
 
 - ``/oauth/authorize`` — validates the client, authenticates the (synthetic)
   user, records consent, and mints a **single-use** authorization code bound to
@@ -11,7 +11,7 @@ protocol step and check is ours to instrument. Phase 0 implements:
   **real** RS256 JWT access token.
 - ``/.well-known/jwks.json`` — publishes the public signing key.
 
-PKCE, DPoP, issuer identification, and introspection arrive in later phases.
+PKCE, DPoP, and introspection are layered on top through the capability catalog.
 """
 
 from __future__ import annotations
@@ -174,7 +174,7 @@ class AuthServerImpl(AuthServer):
 
         # First-class check: the client is registered and the redirect URI exactly
         # matches a registered one (the authorize-time client binding). Emitted on
-        # PASS too so later phases can highlight it (e.g. exact vs loose matching).
+        # PASS too so the UI can highlight it (e.g. exact vs loose matching).
         registered = looked is not None
         redirect_ok = registered and redirect_uri in looked.redirect_uris
         reg_result = "PASS" if (registered and redirect_ok) else "FAIL"
@@ -309,7 +309,7 @@ class AuthServerImpl(AuthServer):
 
         Enforces client authentication, grant type, single-use code redemption,
         redirect-URI match, and client binding, each with a first-class ``check``
-        event (emitted on PASS too, so later phases can highlight them).
+        event (emitted on PASS too, so the UI can highlight them).
         """
         grant_type = request.get("grant_type")
         code = request.get("code")

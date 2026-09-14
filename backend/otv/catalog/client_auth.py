@@ -33,7 +33,7 @@ capability(
         "secret (Basic header or POST body) or a signed private_key_jwt assertion."
     ),
     spec_ref=SpecRef(rfc="RFC 6749", section="§2.3"),
-    phase=5,
+    order=40,
     # Client authentication is not tied to one grant: it gates the token endpoint
     # for the client-credentials grant and for the confidential authorization-code
     # exchange too, so it applies broadly.

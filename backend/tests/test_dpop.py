@@ -1,4 +1,4 @@
-"""DPoP (RFC 9449) + token-replay tests — Phase 6.
+"""DPoP (RFC 9449) + token-replay tests.
 
 Assert the decisive single-toggle behaviour: a stolen bearer token is replayed
 successfully, but the *same* theft fails at the resource server once the token is
@@ -157,11 +157,11 @@ def test_compare_diverges_at_the_resource_server_dpop_check():
     assert resp.variant.verdict.attacker_got_token is False
 
 
-# --- catalog availability ---------------------------------------------------
+# --- catalog ----------------------------------------------------------------
 
 
-def test_dpop_and_token_replay_are_available_at_phase_6():
+def test_dpop_and_token_replay_are_catalogued():
     by_id = {i.id: i for i in [*registry.CAPABILITIES, *registry.ATTACKS]}
-    assert by_id["dpop"].phase == 6 and by_id["dpop"].available is True
-    assert by_id["token_replay"].phase == 6 and by_id["token_replay"].available is True
+    assert by_id["dpop"].kind == "capability"
+    assert by_id["token_replay"].kind == "attack"
     assert by_id["dpop"].check_names == ["dpop_binding"]

@@ -18,6 +18,6 @@ attack(
     label="CSRF (cross-session code injection)",
     description="Inject the attacker's own code into the victim's session (login CSRF).",
     spec_ref=SpecRef(rfc="RFC 6749", section="§10.12"),
-    phase=2,
+    order=30,
     applies_to_grants=["authorization_code"],
 )

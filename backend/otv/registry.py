@@ -2,21 +2,21 @@
 
 The on-the-wire config is an OPEN id-keyed map (see ``contract.FeatureState``),
 but every id is backed here by a small, self-documenting class: its id, label,
-description, governing spec, parameter schema, default state, incompatibilities,
-and the phase it arrives in. ``GET /api/catalog`` is just this registry
-serialized, so the UI picker is data-driven and never edited when a capability
-or attack is added.
+description, governing spec, parameter schema, default state, and
+incompatibilities. ``GET /api/catalog`` is just this registry serialized, so the
+UI picker is data-driven and never edited when a capability or attack is added.
 
 Extension point (the plugin seam)
 ---------------------------------
 Capabilities and attacks are **self-registering modules**. Each lives in its own
 file under :mod:`otv.catalog` and, at import time, calls :func:`capability` or
 :func:`attack` to add itself to the catalog. There is no hand-edited central
-list: :mod:`otv.catalog` auto-discovers and imports every module in that package
-(ordered by filename), so *adding a capability or attack in a later phase is just
-adding a file there* — no edit to this module or any shared list.
+list: :mod:`otv.catalog` auto-discovers and imports every module in that package,
+so *adding a capability or attack is just adding a file there* — no edit to this
+module or any shared list. Each item carries an explicit ``order`` that fixes its
+place in the catalog (and therefore the picker), independent of filename.
 
-The wire schema is frozen; this registry is what grows per phase.
+The wire schema is frozen; this registry lists the features the build ships.
 """
 
 from __future__ import annotations
@@ -25,17 +25,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 from .contract import SpecRef
-
-# The highest phase whose capabilities/attacks are actually runnable in this
-# build. ``RegistryItem.available`` is derived from it, so shipping a new phase is
-# a one-line bump here rather than edits scattered across items. Phase 4 adds the
-# JWT bearer grant with ``assertion_replay_protection`` and the ``assertion_replay``
-# attack, Phase 5 makes ``client_auth`` and ``static_secret_leak`` runnable, and
-# Phase 6 adds ``dpop`` and the ``token_replay`` attack (on top of Phase 1's
-# ``pkce``/``auth_code_injection`` and Phase 2's
-# ``state``/``code_token_replay``/``csrf_code_injection``); every later toggle
-# (``issuer_id``, ``phish*``) stays unavailable until its own phase lands.
-CURRENT_PHASE = 6
 
 
 @dataclass(frozen=True)
@@ -69,7 +58,9 @@ class RegistryItem:
     description: str
     spec_ref: SpecRef
     kind: str  # "capability" | "attack"
-    phase: int  # the phase in which this becomes runnable
+    # Explicit catalog position (ascending), ties broken by id. Fixes the picker
+    # order independent of filename, so renaming a module never reorders the UI.
+    order: int = 100
     default_active: bool = False
     params: List[ParamSpec] = field(default_factory=list)
     incompatibilities: List[str] = field(default_factory=list)
@@ -78,8 +69,8 @@ class RegistryItem:
     applies_to_grants: List[str] = field(default_factory=list)
     # Meta-capability bundling (IMPLEMENTATION.md §3): ``implies`` ids are forced
     # active + locked when this item is active; ``forbids`` ids are disallowed. A
-    # ``forbids`` entry may name a capability id OR a grant id (so a future
-    # ``oauth_2_1`` can forbid the ``implicit`` grant). Both empty for a plain item.
+    # ``forbids`` entry may name a capability id OR a grant id (so a bundling
+    # capability could forbid the ``implicit`` grant). Both empty for a plain item.
     implies: List[str] = field(default_factory=list)
     forbids: List[str] = field(default_factory=list)
     # Names of the first-class ``Check``s (contract.Check.name) this item's own
@@ -90,11 +81,6 @@ class RegistryItem:
     # emits no first-class check (e.g. an attack).
     check_names: List[str] = field(default_factory=list)
 
-    @property
-    def available(self) -> bool:
-        """Runnable in the current build (phase at or below ``CURRENT_PHASE``)."""
-        return self.phase <= CURRENT_PHASE
-
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
@@ -102,7 +88,6 @@ class RegistryItem:
             "description": self.description,
             "spec_ref": {"rfc": self.spec_ref.rfc, "section": self.spec_ref.section},
             "kind": self.kind,
-            "phase": self.phase,
             "default_active": self.default_active,
             "params": [p.to_dict() for p in self.params],
             "incompatibilities": list(self.incompatibilities),
@@ -110,7 +95,6 @@ class RegistryItem:
             "implies": list(self.implies),
             "forbids": list(self.forbids),
             "check_names": list(self.check_names),
-            "available": self.available,
         }
 
 
@@ -124,9 +108,9 @@ class Attack(RegistryItem):
 
 # --- The self-registration seam --------------------------------------------
 # Feature modules under ``otv.catalog`` call ``capability(...)`` / ``attack(...)``
-# at import time. Insertion order within each kind is the module discovery order
-# (filename-sorted, see otv/catalog/__init__.py), which is what ``to_catalog_dict``
-# — and therefore the picker — renders in.
+# at import time. The public views below are sorted by each item's explicit
+# ``order`` (ties broken by id), which is what ``to_catalog_dict`` — and therefore
+# the picker — renders in, so module import order never affects the UI.
 
 _CAPABILITIES: List[Capability] = []
 _ATTACKS: List[Attack] = []
@@ -160,6 +144,11 @@ def attack(**kw: Any) -> Attack:
 from . import catalog as _catalog  # noqa: E402  (import for its registration side effects)
 
 _catalog.load_all()
+
+# Fix the catalog order by each item's explicit ``order`` (ties broken by id) so
+# it is deterministic and independent of module import order.
+_CAPABILITIES.sort(key=lambda i: (i.order, i.id))
+_ATTACKS.sort(key=lambda i: (i.order, i.id))
 
 # Public, ordered views used across the backend and the tests.
 CAPABILITIES: List[Capability] = _CAPABILITIES

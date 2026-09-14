@@ -1,4 +1,4 @@
-"""Phase 5 — client-credentials grant, client-authentication methods, and the
+"""Client-credentials grant, client-authentication methods, and the
 static-secret-leak attack (defeated by private_key_jwt).
 
 These exercise the real protocol outcomes, not scripted verdicts: each client
@@ -108,7 +108,7 @@ def test_basic_auth_header_redacts_the_secret_like_the_post_body():
     header's base64 payload must not decode to `client_id:<full secret>`."""
     import base64
 
-    from otv.engine.runners.r5_client_credentials import SERVICE_CLIENT_SECRET
+    from otv.engine.runners.client_credentials import SERVICE_CLIENT_SECRET
 
     trace = run(_cc("client_secret_basic"))
     header = next(
@@ -204,21 +204,20 @@ def test_leak_compare_diverges_at_the_client_auth_check():
     assert b[first.seq].check is None or b[first.seq].check.result == "PASS"
 
 
-# --- Catalog availability ---------------------------------------------------
+# --- Catalog ----------------------------------------------------------------
 
 
-def test_client_auth_capability_is_catalogued_and_available():
+def test_client_auth_capability_is_catalogued():
     item = registry.get("client_auth")
     assert item is not None and item.kind == "capability"
-    assert item.phase == 5 and item.available is True
     assert item.check_names == ["client_secret_auth", "private_key_jwt_auth"]
-    # The static-secret-leak attack is now runnable too.
+    # The static-secret-leak attack applies to the client-credentials grant.
     leak = registry.get("static_secret_leak")
-    assert leak.available is True and leak.applies_to_grants == ["client_credentials"]
+    assert leak is not None and leak.applies_to_grants == ["client_credentials"]
     # Guard the test's local copy of the principal id against the runner's.
-    from otv.engine.runners import r5_client_credentials as r5
+    from otv.engine.runners import client_credentials as cc
 
-    assert SERVICE_CLIENT_ID == r5.SERVICE_CLIENT_ID
+    assert SERVICE_CLIENT_ID == cc.SERVICE_CLIENT_ID
 
 
 def test_static_secret_leak_needs_the_client_credentials_grant():
