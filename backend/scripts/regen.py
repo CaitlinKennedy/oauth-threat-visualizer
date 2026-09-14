@@ -113,6 +113,57 @@ TRACE_FIXTURES: List[Tuple[str, str, ScenarioConfig]] = [
             atks={"assertion_replay": FeatureState(active=True)},
         ),
     ),
+    # Phase 5 — client credentials + client authentication methods.
+    (
+        "client_credentials_secret",
+        "clientCredentialsSecret.json",
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "client_secret_basic"}
+                )
+            },
+        ),
+    ),
+    (
+        "client_credentials_jwt",
+        "clientCredentialsJwt.json",
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "private_key_jwt"}
+                )
+            },
+        ),
+    ),
+    (
+        "static_secret_leak_secret",
+        "staticSecretLeakSecret.json",
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "client_secret_basic"}
+                )
+            },
+            atks={"static_secret_leak": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "static_secret_leak_jwt",
+        "staticSecretLeakJwt.json",
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "private_key_jwt"}
+                )
+            },
+            atks={"static_secret_leak": FeatureState(active=True)},
+        ),
+    ),
 ]
 
 # The paired-diff fixtures (a CompareResponse each, not a Trace):
@@ -154,6 +205,28 @@ COMPARE_FIXTURES: List[Tuple[str, str, ScenarioConfig, ScenarioConfig]] = [
             grant="jwt_bearer",
             caps={"assertion_replay_protection": FeatureState(active=True)},
             atks={"assertion_replay": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "client_auth_leak_compare",
+        "clientAuthLeakCompare.json",
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "client_secret_basic"}
+                )
+            },
+            atks={"static_secret_leak": FeatureState(active=True)},
+        ),
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "private_key_jwt"}
+                )
+            },
+            atks={"static_secret_leak": FeatureState(active=True)},
         ),
     ),
 ]

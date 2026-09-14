@@ -27,7 +27,7 @@ from typing import Any, Dict, List
 
 import jwt
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 _ALG = "RS256"
 
@@ -84,15 +84,31 @@ def verify_pkce(verifier: str | None, challenge: str, method: str = "S256") -> b
 
 @dataclass
 class SigningKey:
-    """An RSA signing key plus the public JWK the JWKS endpoint serves."""
+    """A signing key plus the public JWK the JWKS endpoint serves.
+
+    Defaults to a 2048-bit RSA key (RS256), used for access tokens and the JWT
+    bearer grant's user assertions. Pass ``alg="ES256"`` to generate an EC
+    (P-256) key instead — used by ``private_key_jwt`` client authentication
+    (RFC 7523 §2.2), which conventionally proves possession of a key rather
+    than an RSA modulus. Both key types share the same assertion sign/verify
+    helpers below (:func:`sign_assertion` / :func:`verify_assertion`); the
+    correct algorithm always travels with the key, never hard-coded per call
+    site.
+    """
 
     kid: str
     _private_pem: bytes
     _public_pem: bytes
+    alg: str = _ALG
 
     @classmethod
-    def generate(cls, kid: str | None = None) -> "SigningKey":
-        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    def generate(cls, kid: str | None = None, alg: str = _ALG) -> "SigningKey":
+        if alg == "ES256":
+            key = ec.generate_private_key(ec.SECP256R1())
+        elif alg == "RS256":
+            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        else:
+            raise ValueError(f"unsupported signing algorithm {alg!r}")
         private_pem = key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
@@ -106,13 +122,18 @@ class SigningKey:
             kid=kid or f"key-{uuid.uuid4().hex[:8]}",
             _private_pem=private_pem,
             _public_pem=public_pem,
+            alg=alg,
         )
 
     def public_jwk(self) -> Dict[str, Any]:
         """Return the public key as a JWK dict (with ``kid``, ``use``, ``alg``)."""
-        # PyJWT emits a spec-correct RSA public JWK (n, e); we enrich the metadata.
-        jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(self._public_key_obj()))
-        jwk.update({"kid": self.kid, "use": "sig", "alg": _ALG})
+        # PyJWT emits a spec-correct public JWK (RSA: n, e; EC: crv, x, y); we
+        # enrich the metadata the same way for either key type.
+        algorithm_cls = (
+            jwt.algorithms.ECAlgorithm if self.alg == "ES256" else jwt.algorithms.RSAAlgorithm
+        )
+        jwk = json.loads(algorithm_cls.to_jwk(self._public_key_obj()))
+        jwk.update({"kid": self.kid, "use": "sig", "alg": self.alg})
         return jwk
 
     def jwks(self) -> Dict[str, Any]:
@@ -222,19 +243,30 @@ def sign_assertion(
     audience: str,
     ttl_seconds: int = 60,
     jti: str | None = None,
+    iat_offset: int = 0,
     extra_claims: Dict[str, Any] | None = None,
 ) -> str:
-    """Sign a real JWT bearer assertion (RS256), RFC 7523 §3.
+    """Sign a real JWT assertion (RFC 7523 §3) with ``key``'s own algorithm.
 
-    The assertion vouches for ``subject`` (the principal — here the user) and is
-    signed by ``issuer``: a party the authorization server trusts and whose public
-    key it holds. ``audience`` MUST be the AS token endpoint, so an assertion
-    minted for one endpoint cannot be presented to another. A fresh ``jti`` and a
-    short ``exp`` are what make the assertion one-time and short-lived (RFC 7523
-    §3, items 4/6) — the two properties, with the audience binding, that a replay
-    cannot get around.
+    The canonical assertion helper for BOTH uses in this codebase: the JWT
+    bearer grant's user assertion (Phase 4, an RS256 ``SigningKey``) and
+    ``private_key_jwt`` client authentication's ``client_assertion`` (Phase 5,
+    an ES256 ``SigningKey``) — the claim shape and the one-time/short-lived
+    properties that defeat replay are identical either way; only the key type
+    differs, and that travels with ``key.alg``.
+
+    The assertion vouches for ``subject`` (the principal — a user for the JWT
+    bearer grant, or the client itself for ``private_key_jwt``) and is signed
+    by ``issuer``: a party the authorization server trusts and whose public key
+    it holds. ``audience`` MUST be the AS token endpoint, so an assertion
+    minted for one endpoint cannot be presented to another. A fresh ``jti`` and
+    a short ``exp`` are what make the assertion one-time and short-lived (RFC
+    7523 §3, items 4/6) — the two properties, with the audience binding, that a
+    replay cannot get around. ``iat_offset`` lets a caller mint an assertion as
+    if issued in the past (a negative offset) — used to model an artifact
+    captured from an earlier flow that is now expired.
     """
-    now = int(time.time())
+    now = int(time.time()) + iat_offset
     claims: Dict[str, Any] = {
         "iss": issuer,
         "sub": subject,
@@ -249,9 +281,12 @@ def sign_assertion(
     return jwt.encode(
         claims,
         key._private_pem,
-        algorithm=_ALG,
+        algorithm=key.alg,
         headers={"kid": key.kid, "typ": "JWT"},
     )
+
+
+_ASSERTION_ALGS = ("RS256", "ES256")
 
 
 def verify_assertion(
@@ -261,7 +296,14 @@ def verify_assertion(
     issuer: str,
     audience: str,
 ) -> Dict[str, Any]:
-    """Verify a JWT bearer assertion against the issuer's JWKS (RFC 7523 §3).
+    """Verify a JWT assertion against the issuer's JWKS (RFC 7523 §3).
+
+    The canonical counterpart to :func:`sign_assertion`, used by both the JWT
+    bearer grant (RSA assertions) and ``private_key_jwt`` client authentication
+    (EC/ES256 assertions) — either ``RS256`` or ``ES256`` is accepted since the
+    actual public key in ``jwks`` (selected by the token's ``kid``) is what
+    verification is against; a key of one type can never produce a valid
+    signature for the other algorithm, so allowing both here narrows nothing.
 
     Enforces the JWS signature (against the issuer's published key), ``iss``,
     ``aud`` = the token endpoint, and the ``exp``/``nbf`` time window, and requires
@@ -278,7 +320,7 @@ def verify_assertion(
     return jwt.decode(
         token,
         public_key,
-        algorithms=[_ALG],
+        algorithms=list(_ASSERTION_ALGS),
         audience=audience,
         issuer=issuer,
         options={"require": ["exp", "iat", "nbf", "iss", "aud", "sub", "jti"]},

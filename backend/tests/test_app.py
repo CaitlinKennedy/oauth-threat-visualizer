@@ -42,15 +42,17 @@ def test_catalog_exposes_new_fields_and_phases(client):
     assert by_id["dpop"]["phase"] == 6
     assert by_id["issuer_id"]["phase"] == 7
     assert by_id["pkce"]["applies_to_grants"] == ["authorization_code"]
-    # CURRENT_PHASE = 2 → pkce/injection + state/replay/CSRF are available; the
-    # later-phase toggles are not.
+    # CURRENT_PHASE = 5 → pkce/injection, state/replay/CSRF, and client_auth /
+    # static-secret-leak are available; dpop (6) and issuer_id (7) are not.
     assert by_id["pkce"]["available"] is True
     assert by_id["auth_code_injection"]["available"] is True
     assert by_id["state"]["available"] is True
     assert by_id["code_token_replay"]["available"] is True
     assert by_id["csrf_code_injection"]["available"] is True
+    assert by_id["client_auth"]["available"] is True
+    assert by_id["static_secret_leak"]["available"] is True
     assert by_id["dpop"]["available"] is False
-    assert by_id["static_secret_leak"]["available"] is False
+    assert by_id["issuer_id"]["available"] is False
 
 
 def test_run_happy_path_returns_live_trace(client):
@@ -79,7 +81,7 @@ def test_run_malformed_body_is_400_json_not_500(client, payload):
 
 def test_run_unsupported_config_is_not_a_fake_success(client):
     # A grant that isn't implemented must NOT return a happy-path success.
-    r = client.post("/api/run", json={"config": {"grant": "client_credentials"}})
+    r = client.post("/api/run", json={"config": {"grant": "jwt_bearer"}})
     assert r.status_code == 501
     body = r.get_json()
     assert body["error"] == "not_available"
