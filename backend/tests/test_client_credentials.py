@@ -102,6 +102,26 @@ def test_each_client_auth_method_is_verified_with_its_check_and_highlight(method
     assert HIGHLIGHT_FOR[method] in highlights, f"{method}: missing highlight"
 
 
+def test_basic_auth_header_redacts_the_secret_like_the_post_body():
+    """client_secret_basic must not leak the full secret into the trace any more
+    than client_secret_post does: the body redacts it, and the Authorization
+    header's base64 payload must not decode to `client_id:<full secret>`."""
+    import base64
+
+    from otv.engine.runners.r5_client_credentials import SERVICE_CLIENT_SECRET
+
+    trace = run(_cc("client_secret_basic"))
+    header = next(
+        e.http.request.headers["Authorization"]
+        for e in trace.events
+        if e.http and e.http.request.headers.get("Authorization")
+    )
+    assert header.startswith("Basic ")
+    decoded = base64.b64decode(header[len("Basic ") :]).decode("utf-8")
+    assert SERVICE_CLIENT_SECRET not in decoded
+    assert decoded.startswith(f"{SERVICE_CLIENT_ID}:")
+
+
 # --- The attack: static-secret leak wins; private_key_jwt defeats it --------
 
 
@@ -116,6 +136,18 @@ def test_static_secret_leak_wins_with_a_shared_secret(method):
     token = _token_from(trace)
     claims = crypto.decode_claims_unverified(token)
     assert claims["sub"] == SERVICE_CLIENT_ID
+
+
+@pytest.mark.parametrize("method", ("client_secret_basic", "client_secret_post"))
+def test_leak_win_step_is_on_behalf_of_attacker(method):
+    """The step where the attacker actually obtains the token (outcome
+    "attack_success") is the attacker's own action, not something done "on
+    behalf of" the user — the emit must happen inside the attacker's `acting`
+    scope."""
+    trace = run(_cc(method, leak=True))
+    win = next(e for e in trace.events if e.outcome == "attack_success")
+    assert win.on_behalf_of == "attacker"
+    assert win.actor == "attacker"
 
 
 def test_private_key_jwt_defeats_the_reuse():

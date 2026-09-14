@@ -107,7 +107,17 @@ def _redact(secret: str) -> str:
 
 
 def _basic_header(client_id: str, secret: str) -> str:
-    raw = f"{client_id}:{secret}".encode("utf-8")
+    """The recorded ``Authorization: Basic`` header, secret redacted.
+
+    Real HTTP Basic auth base64-encodes ``client_id:secret`` — but this is the
+    header as it goes into the TRACE, not the wire, and the trace must never
+    display a full credential (real Basic auth over TLS is fine; a visualizer
+    that echoes the whole secret back in plaintext is not, and would teach
+    "Basic is safe to log"). Redact the secret the same way the
+    ``client_secret_post`` body does before encoding, so only a `client_id:`
+    plus a truncated, clearly-redacted tail ever appears.
+    """
+    raw = f"{client_id}:{_redact(secret)}".encode("utf-8")
     return "Basic " + base64.b64encode(raw).decode("ascii")
 
 
@@ -462,23 +472,25 @@ def _run_leak(config: ScenarioConfig) -> Trace:
             block_seq = _emit_attacker_blocked(recorder, method, exc)
             return recorder.seal(_leak_blocked_verdict(recorder, method, exc.at_seq or block_seq))
 
-    # 3) Secret methods: the replay authenticated and the attacker holds a token.
-    access_token = token_response["access_token"]
-    win_seq = recorder.emit(
-        actor="attacker",
-        phase="token",
-        summary="Attacker obtains a client-principal token by impersonation.",
-        detail=(
-            "The static secret is the whole authority. Replaying the leaked secret "
-            "authenticates the attacker AS the client, so the token endpoint issues a "
-            "token for the client's principal. Because the secret never rotates, this "
-            "impersonation persists until someone notices and rotates it."
-        ),
-        outcome="attack_success",
-        refs=[recorder.last_seq],
-        knowledge_delta={"attacker": KnowledgeState(has=["client_principal_token"])},
-        spec_refs=[SpecRef(rfc="RFC 6749", section="§10.3")],
-    )
+        # 3) Secret methods: the replay authenticated and the attacker holds a
+        #    token. Stays inside the attacker's `acting` block — this is the
+        #    attacker's own win, not something done "on behalf of" the user.
+        access_token = token_response["access_token"]
+        win_seq = recorder.emit(
+            actor="attacker",
+            phase="token",
+            summary="Attacker obtains a client-principal token by impersonation.",
+            detail=(
+                "The static secret is the whole authority. Replaying the leaked secret "
+                "authenticates the attacker AS the client, so the token endpoint issues a "
+                "token for the client's principal. Because the secret never rotates, this "
+                "impersonation persists until someone notices and rotates it."
+            ),
+            outcome="attack_success",
+            refs=[recorder.last_seq],
+            knowledge_delta={"attacker": KnowledgeState(has=["client_principal_token"])},
+            spec_refs=[SpecRef(rfc="RFC 6749", section="§10.3")],
+        )
     assert access_token  # a real signed JWT was issued to the attacker
     return recorder.seal(_leak_success_verdict(method, win_seq))
 

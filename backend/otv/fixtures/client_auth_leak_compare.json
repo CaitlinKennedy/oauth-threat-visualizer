@@ -1,7 +1,7 @@
 {
   "mode": "compare",
   "baseline": {
-    "correlation_id": "run_p1s9Dp1DQwSQu9908mXuiIgrSuXq-kHCu2lsFugX93Y",
+    "correlation_id": "run_zqbXzbjwRfCb_60zRo9FMrqw3THCC04qjbw-JYkLZjc",
     "config": {
       "grant": "client_credentials",
       "capabilities": {
@@ -89,7 +89,7 @@
             "url": "https://auth.oauthlab.internal/oauth/token",
             "headers": {
               "Content-Type": "application/x-www-form-urlencoded",
-              "Authorization": "Basic ZGVtby1zZXJ2aWNlLWNsaWVudDpzdmMtczNjcjN0LTAxSFhaLW5ldmVyLXJvdGF0ZWQ="
+              "Authorization": "Basic ZGVtby1zZXJ2aWNlLWNsaWVudDpzdmPigKYocmVkYWN0ZWQp"
             },
             "body": {
               "grant_type": "client_credentials",
@@ -170,7 +170,7 @@
               "Content-Type": "application/json"
             },
             "body": {
-              "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLWNjLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJkZW1vLXNlcnZpY2UtY2xpZW50IiwiYXVkIjoiaHR0cHM6Ly9hcGkub2F1dGhsYWIuaW50ZXJuYWwiLCJjbGllbnRfaWQiOiJkZW1vLXNlcnZpY2UtY2xpZW50Iiwic2NvcGUiOiJyZXBvcnRzLnJlYWQgcmVwb3J0cy53cml0ZSIsImlhdCI6MTc4OTM0MzcyNCwibmJmIjoxNzg5MzQzNzI0LCJleHAiOjE3ODkzNDQwMjQsImp0aSI6IjlkM2NiY2NlMWI4ODRkYzY5NjUwMzY2MGY1ODJiMGNjIn0.rI1y_q7ZLVOYQKXIFBEuc4g-ol0ZmyqDgI98QDjeeLrbCPApPKrewMWIP1kAJit9UDSsNHrEo00lzVQLdaYOaDepYzmdGijE7QiJrWXSiKo-sSFQi-R6eAMjOHwDj7SFFCQAf33E5e44qxFLndezY1MSyB__QCXIXU56aBWjTiFB5GF8PinttJ-_YJPC60EVLV1eiC9D3GvFiHCEpy_g2dL4Nw5RBF27UP8b1NBIb6NFfrKGRcY53Vyu64vf5p0QF-olPIHsRnHiwqk3vFrZmOmtEUJQjKiXSe4sV-xMV8pLWacDEuDrpWiEcwuoGxZ0Eo9D4M86n3k4umV04mOcCw",
+              "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLWNjLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJkZW1vLXNlcnZpY2UtY2xpZW50IiwiYXVkIjoiaHR0cHM6Ly9hcGkub2F1dGhsYWIuaW50ZXJuYWwiLCJjbGllbnRfaWQiOiJkZW1vLXNlcnZpY2UtY2xpZW50Iiwic2NvcGUiOiJyZXBvcnRzLnJlYWQgcmVwb3J0cy53cml0ZSIsImlhdCI6MTc4OTM0Njc0MCwibmJmIjoxNzg5MzQ2NzQwLCJleHAiOjE3ODkzNDcwNDAsImp0aSI6IjIxOGU5Y2IzMmZlYjQxM2I4ZDEwNzNlNDFkMjhlZDMyIn0.uEZbKkzusYdtBaYOLdWtoBWpFoE2cuO53Zv1YYZI6UT1SM0FmHmz-QKFOhbZeO6OrvPusMjdFFfqrqfWwy9GD4IXn1XcGRNyNg-hEm4mzmMBMivA5gGSqVp74xKO2SY9Npm6xbKy5mqHpudb6EdADdF8ANMkeLBOBAXfHNldzC66EuufwwULMuu_eSVOlTdu1jbRr1lPAp_vYGQdVnKauJQABL8SgUu360X2SboO5XGF5ug4J4bs0ZpC9foUS0SmFTijf5J7LE1RXqWRemAIUw7c-mj9HXY1zJbm0sZ955TVgDhHJBJ4FOen7K_ZLUtuYq4XT3EnSr1e3Vg-6sP3sA",
               "token_type": "Bearer",
               "expires_in": 300,
               "scope": "reports.read reports.write"
@@ -200,7 +200,7 @@
       {
         "seq": 5,
         "actor": "attacker",
-        "on_behalf_of": "user",
+        "on_behalf_of": "attacker",
         "phase": "token",
         "summary": "Attacker obtains a client-principal token by impersonation.",
         "detail": "The static secret is the whole authority. Replaying the leaked secret authenticates the attacker AS the client, so the token endpoint issues a token for the client's principal. Because the secret never rotates, this impersonation persists until someone notices and rotates it.",
@@ -229,7 +229,7 @@
     "chain_id": null
   },
   "variant": {
-    "correlation_id": "run_SfMj_9_mRECbQyCHwhshFvmg7JWlXUCGvOBk-m1dQWI",
+    "correlation_id": "run_yn1SyvU9QmeJXwWBZeRSRN1fUDD61UWpqXQZ9hdie-c",
     "config": {
       "grant": "client_credentials",
       "capabilities": {
@@ -328,7 +328,7 @@
               "grant_type": "client_credentials",
               "scope": "reports.read reports.write",
               "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-              "client_assertion": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImNsaWVudC1rZXktNzNmNzk1N2IiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJkZW1vLXNlcnZpY2UtY2xpZW50Iiwic3ViIjoiZGVtby1zZXJ2aWNlLWNsaWVudCIsImF1ZCI6Imh0dHBzOi8vYXV0aC5vYXV0aGxhYi5pbnRlcm5hbC9vYXV0aC90b2tlbiIsImp0aSI6ImJlZmU1MWI0N2JiNTQ0MGQ4ZjJlNzczZTZiYmZiMjk3IiwiaWF0IjoxNzg5MzQzMTI0LCJleHAiOjE3ODkzNDMxODR9.qcrc4HGUngMH-TO3MIRtDnPKoX60hHCfFNxpR_fNCtE5dhYkEvJaxEV_q9NnESwCJ6Ex6kYQe9mDm1xzukJ_RA"
+              "client_assertion": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImNsaWVudC1rZXktNWY4YTkyNzMiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJkZW1vLXNlcnZpY2UtY2xpZW50Iiwic3ViIjoiZGVtby1zZXJ2aWNlLWNsaWVudCIsImF1ZCI6Imh0dHBzOi8vYXV0aC5vYXV0aGxhYi5pbnRlcm5hbC9vYXV0aC90b2tlbiIsImlhdCI6MTc4OTM0NjE0MCwibmJmIjoxNzg5MzQ2MTQwLCJleHAiOjE3ODkzNDYyMDAsImp0aSI6ImU0ZjZjMjk3MzE3YzQzOTNhMjJkOTM3ZTlmOWNlZTAzIn0.-i5NIdMff4cuyDK3zvBGR9UjCb7mj7Z8eCBhxC0OWWWuke8LRLg09UHAxo5mPUVqwAeZ4LfZCQ2AuScX9KVK0g"
             }
           },
           "response": {
