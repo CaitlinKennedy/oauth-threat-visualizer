@@ -63,10 +63,15 @@ class JwtBearerClient:
         signing_key: crypto.SigningKey,
         registered_client: Optional[RegisteredClient] = None,
         assertion_ttl_seconds: int = 60,
+        dpop: bool = False,
     ):
         self.recorder = recorder
         self.env = env
         self.registered = registered_client or env.client
+        # DPoP (RFC 9449): when active, the exchange carries a proof so the AS
+        # binds the token to this key (cnf.jkt), and every resource call proves
+        # possession of it. Independent of the assertion signing key.
+        self.dpop_key: Optional[crypto.DpopKey] = crypto.DpopKey.generate() if dpop else None
         # The client-as-issuer signing key. Only the public half is registered with
         # the AS; the private half never leaves the client, which is exactly why an
         # attacker who captures an assertion still cannot mint a fresh one.
@@ -148,6 +153,10 @@ class JwtBearerClient:
             "grant_type": JWT_BEARER_GRANT_TYPE,
             "assertion": self._assertion,
         }
+        if self.dpop_key is not None:
+            token_request["dpop"] = crypto.create_dpop_proof(
+                self.dpop_key, htm="POST", htu=self.env.token_url
+            )
         token_response = auth_server.token_jwt_bearer(token_request)
         self._access_token = token_response["access_token"]
         seq = self.recorder.emit(
@@ -168,11 +177,16 @@ class JwtBearerClient:
     def access_resource(self, *, resource_server: ResourceServer) -> Dict[str, Any]:
         """Call the protected resource with the stored access token."""
         assert self._access_token is not None, "access_resource before a token was obtained"
-        request = {
-            "url": self.env.resource_url,
-            "headers": {"Authorization": f"Bearer {self._access_token}"},
-        }
-        return resource_server.get_resource(request)
+        if self.dpop_key is not None:
+            headers = {
+                "Authorization": f"DPoP {self._access_token}",
+                "DPoP": crypto.create_dpop_proof(
+                    self.dpop_key, htm="GET", htu=self.env.resource_url
+                ),
+            }
+        else:
+            headers = {"Authorization": f"Bearer {self._access_token}"}
+        return resource_server.get_resource({"url": self.env.resource_url, "headers": headers})
 
 
 class JwtBearerAuthServer(AuthServerImpl):
@@ -228,7 +242,10 @@ class JwtBearerAuthServer(AuthServerImpl):
                 request=HttpMessage(
                     method="POST",
                     url=self.env.token_url,
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        **({"DPoP": "<dpop_proof>"} if request.get("dpop") else {}),
+                    },
                     body={"grant_type": grant_type, "assertion": "<signed_jwt_assertion>"},
                 ),
                 response=HttpMessage(status=200, body={"processing": True}),
@@ -348,6 +365,15 @@ class JwtBearerAuthServer(AuthServerImpl):
                 "invalid_grant", "assertion jti already redeemed (replay)", at_seq=jti_seq
             )
 
+        # DPoP sender-constraining (RFC 9449 §5–§6): bind the token to the proof's
+        # key via cnf.jkt. Absent a proof the token is a plain bearer token.
+        extra_claims = None
+        if request.get("dpop") is not None:
+            bound = crypto.verify_dpop_proof(
+                request["dpop"], htm="POST", htu=self.env.token_url
+            )
+            extra_claims = {"cnf": {"jkt": bound["jkt"]}}
+
         access_token = crypto.sign_access_token(
             self.signing_key,
             issuer=self.env.issuer,
@@ -356,6 +382,7 @@ class JwtBearerAuthServer(AuthServerImpl):
             client_id=iss,
             scope=self.env.client.scope,
             ttl_seconds=300,
+            extra_claims=extra_claims,
         )
         self.recorder.emit(
             actor="auth_server",

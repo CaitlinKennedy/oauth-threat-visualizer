@@ -157,10 +157,13 @@ def test_feature_mismatched_with_grant_is_unsupported():
 
 
 @pytest.mark.parametrize("grant", ["client_credentials", "jwt_bearer"])
-@pytest.mark.parametrize("attack", ["token_replay", "code_token_replay"])
-def test_auth_code_replay_attacks_are_refused_for_back_channel_grants(grant, attack):
-    """These replays are staged on the authorization-code flow; under a grant with
-    no front channel they must be refused rather than silently running an
+def test_code_replay_is_refused_for_back_channel_grants(grant):
+    """Only the authorization-code grant issues a code; under a grant with no
+    front channel code replay must be refused rather than silently running an
     authorize/redirect trace that doesn't belong to the requested grant."""
     with pytest.raises(UnsupportedScenario):
-        run(ScenarioConfig(grant=grant, attacks={attack: FeatureState(active=True)}))
+        run(
+            ScenarioConfig(
+                grant=grant, attacks={"code_token_replay": FeatureState(active=True)}
+            )
+        )

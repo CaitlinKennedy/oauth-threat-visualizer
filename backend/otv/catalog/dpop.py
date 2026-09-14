@@ -19,9 +19,8 @@ capability(
     description="Sender-constrain the token to a proof-of-possession key (cnf.jkt).",
     spec_ref=SpecRef(rfc="RFC 9449", section="§4"),
     order=50,
-    # Exercised against token replay, which is staged on the authorization-code
-    # flow.
-    applies_to_grants=["authorization_code"],
+    # Sender-constraining applies to any grant that yields a token.
+    applies_to_grants=[],
     # The first-class check this capability's own enforcement emits — the resource
     # server's key-binding verification (see engine.runners.support.
     # CHECK_TO_CAPABILITY, derived by scanning this).

@@ -15,12 +15,10 @@ from ..registry import attack
 
 attack(
     id="token_replay",
-    label="Access-token theft / replay",
+    label="Access-token replay (resource server)",
     description="Reuse a stolen access token at the resource server.",
     spec_ref=SpecRef(rfc="RFC 9449", section="§1"),
     order=60,
-    # The replay is staged on a token issued by the authorization-code flow; the
-    # other grants carry their own replay attacks (assertion replay, static
-    # secret leak).
-    applies_to_grants=["authorization_code"],
+    # Every grant issues an access token, so every grant can have one stolen.
+    applies_to_grants=[],
 )

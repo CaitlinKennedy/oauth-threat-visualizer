@@ -36,8 +36,17 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import jwt
 
 from ... import crypto
+from ...actors.attacker import AttackerImpl
 from ...actors.auth_server import OAuthError
-from ...actors.environment import ISSUER, RESOURCE_AUDIENCE, TOKEN_URL
+from ...actors.environment import (
+    ISSUER,
+    RESOURCE_AUDIENCE,
+    RESOURCE_URL,
+    TOKEN_URL,
+    Environment,
+    SyntheticUser,
+)
+from ...actors.resource_server import ResourceServerImpl
 from ...contract import (
     Check,
     HttpExchange,
@@ -51,7 +60,13 @@ from ...contract import (
 from ...recorder import Recorder
 from ...trace_context import acting
 from . import Runner, register
-from .support import CHECK_TO_CAPABILITY, event_at, new_run_id
+from .support import (
+    CHECK_TO_CAPABILITY,
+    dpop_active,
+    event_at,
+    new_run_id,
+    token_replay_verdict,
+)
 
 # The registered machine-to-machine (confidential) client. Its facts live here
 # rather than in the shared environment because they are specific to this grant:
@@ -154,6 +169,7 @@ class M2MTokenEndpoint:
         method: str,
         presented: Dict[str, Any],
         presenter: str,
+        dpop_proof: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Handle a client-credentials token request from ``presenter``.
 
@@ -161,7 +177,9 @@ class M2MTokenEndpoint:
         (on success) the token-issuance step. Raises :class:`OAuthError` — carrying
         the ``check`` seq — when authentication fails.
         """
-        self._emit_receive(method=method, presented=presented, presenter=presenter)
+        self._emit_receive(
+            method=method, presented=presented, presenter=presenter, dpop_proof=dpop_proof
+        )
         check_seq, ok, actual = self._emit_client_auth_check(
             method=method, presented=presented
         )
@@ -172,12 +190,19 @@ class M2MTokenEndpoint:
                 status=401,
                 at_seq=check_seq,
             )
-        return self._emit_issue(presenter=presenter, at_seq=check_seq)
+        return self._emit_issue(presenter=presenter, at_seq=check_seq, dpop_proof=dpop_proof)
 
     def _emit_receive(
-        self, *, method: str, presented: Dict[str, Any], presenter: str
+        self,
+        *,
+        method: str,
+        presented: Dict[str, Any],
+        presenter: str,
+        dpop_proof: Optional[str] = None,
     ) -> int:
         headers: Dict[str, Any] = {"Content-Type": "application/x-www-form-urlencoded"}
+        if dpop_proof is not None:
+            headers["DPoP"] = "<dpop_proof>"
         body: Dict[str, Any] = {"grant_type": "client_credentials", "scope": SERVICE_SCOPE}
         if method == "client_secret_basic":
             headers["Authorization"] = _basic_header(
@@ -302,7 +327,15 @@ class M2MTokenEndpoint:
         self._used_jtis.add(jti)
         return True, "assertion verified"
 
-    def _emit_issue(self, *, presenter: str, at_seq: int) -> Dict[str, Any]:
+    def _emit_issue(
+        self, *, presenter: str, at_seq: int, dpop_proof: Optional[str] = None
+    ) -> Dict[str, Any]:
+        # DPoP sender-constraining (RFC 9449 §5–§6): bind the token to the proof's
+        # key via cnf.jkt. Absent a proof the token is a plain bearer token.
+        extra_claims = None
+        if dpop_proof is not None:
+            bound = crypto.verify_dpop_proof(dpop_proof, htm="POST", htu=TOKEN_URL)
+            extra_claims = {"cnf": {"jkt": bound["jkt"]}}
         access_token = crypto.sign_access_token(
             self.signing_key,
             issuer=ISSUER,
@@ -311,6 +344,7 @@ class M2MTokenEndpoint:
             client_id=self.registered.client_id,
             scope=SERVICE_SCOPE,
             ttl_seconds=300,
+            extra_claims=extra_claims,
         )
         self.recorder.emit(
             actor="auth_server",
@@ -366,38 +400,8 @@ def _run_happy(config: ScenarioConfig) -> Trace:
     method = client_auth_method(config)
 
     with acting(on_behalf_of="client", source_actor="client"):
-        recorder.emit(
-            actor="client",
-            phase="token",
-            summary="Client begins the client-credentials grant (no user involved).",
-            detail=(
-                "Unlike the authorization-code grant, there is no user, browser, "
-                "redirect, or consent here. The client acts on its own behalf — it IS "
-                "the principal — and goes straight to the token endpoint to "
-                "authenticate and request a token."
-            ),
-            outcome="ok",
-            knowledge_delta={
-                "client": KnowledgeState(has=["client_id", "client_credential"]),
-            },
-            spec_refs=[SpecRef(rfc="RFC 6749", section="§4.4")],
-        )
-        presented = _client_presented(registered, method, fresh=True)
-        token_response = endpoint.token(
-            method=method, presented=presented, presenter="client"
-        )
-        recorder.emit(
-            actor="client",
-            phase="token",
-            summary="Client holds an access token issued to itself as the principal.",
-            detail=(
-                "The client received a token whose subject is the client, not a user. "
-                "It can now call machine-to-machine APIs as itself. No user ever "
-                "participated in this exchange."
-            ),
-            outcome="ok",
-            knowledge_delta={"client": KnowledgeState(has=["access_token"])},
-            spec_refs=[SpecRef(rfc="RFC 6749", section="§4.4.3")],
+        token_response = _honest_client_token(
+            recorder, endpoint, registered, method, dpop_key=_dpop_key(config)
         )
 
     got = bool(token_response.get("access_token"))
@@ -493,6 +497,137 @@ def _run_leak(config: ScenarioConfig) -> Trace:
         )
     assert access_token  # a real signed JWT was issued to the attacker
     return recorder.seal(_leak_success_verdict(method, win_seq))
+
+
+# --- Runner 3: access-token replay at the resource server -------------------
+
+
+def _matches_token_replay(config: ScenarioConfig) -> bool:
+    return (
+        config.grant == "client_credentials"
+        and "token_replay" in config.active_attacks()
+    )
+
+
+def _service_principal() -> SyntheticUser:
+    """The resource server's record for the client principal a token here names."""
+    return SyntheticUser(
+        sub=SERVICE_CLIENT_ID,
+        username=SERVICE_CLIENT_ID,
+        display_name="Reporting service (client principal)",
+        email="reports-service@oauthlab.internal",
+    )
+
+
+def _run_token_replay(config: ScenarioConfig) -> Trace:
+    """Steal the client's own access token and replay it at the resource server.
+
+    Unlike the static-secret leak (which targets the token endpoint), this attacks
+    the issued token itself, so only DPoP sender-constraining decides it — the
+    client-authentication method is irrelevant once a token exists.
+    """
+    recorder = Recorder(new_run_id(), config)
+    registered = ServiceClient()
+    endpoint = M2MTokenEndpoint(recorder, registered)
+    method = client_auth_method(config)
+    dpop_key = _dpop_key(config)
+    # A token here names the client, not a user, so the resource server's store
+    # holds the client principal. It verifies tokens against this endpoint's JWKS.
+    env = Environment(users=[_service_principal()])
+    resource_server = ResourceServerImpl(recorder, env.resource_server_config(), endpoint)
+    attacker = AttackerImpl(recorder, env, active=True)
+
+    with acting(on_behalf_of="client", source_actor="client"):
+        token = _honest_client_token(
+            recorder, endpoint, registered, method, dpop_key=dpop_key
+        )["access_token"]
+        if dpop_key is not None:
+            headers = {
+                "Authorization": f"DPoP {token}",
+                "DPoP": crypto.create_dpop_proof(dpop_key, htm="GET", htu=RESOURCE_URL),
+            }
+        else:
+            headers = {"Authorization": f"Bearer {token}"}
+        result = resource_server.get_resource({"url": RESOURCE_URL, "headers": headers})
+
+    attacker.capture_token(token, obtained_from_seq=result["seq"])
+    outcome = attacker.replay_token(resource_server=resource_server)
+
+    verdict = token_replay_verdict(
+        recorder,
+        attacker_read_resource=bool(outcome["got_resource"]),
+        at_seq=outcome.get("at_seq"),
+        user_got_token=False,  # no user in this grant
+        user_accessed_resource=False,
+        honest_bearer=(
+            "Client obtained an access token as its own principal: YES — it "
+            f"authenticated at the token endpoint ({method}) and read its resource."
+        ),
+        honest_dpop=(
+            "Client obtained an access token as its own principal: YES — it "
+            f"authenticated ({method}) with a DPoP proof, binding the token to its "
+            "key, and read its resource."
+        ),
+    )
+    return recorder.seal(verdict)
+
+
+def _dpop_key(config: ScenarioConfig) -> Optional[crypto.DpopKey]:
+    return crypto.DpopKey.generate() if dpop_active(config) else None
+
+
+def _honest_client_token(
+    recorder: Recorder,
+    endpoint: M2MTokenEndpoint,
+    registered: ServiceClient,
+    method: str,
+    *,
+    dpop_key: Optional[crypto.DpopKey] = None,
+) -> Dict[str, Any]:
+    """The honest client authenticates as itself and stores its token.
+
+    Call inside the client's ``acting`` scope. With a DPoP key the request carries
+    a proof, so the issued token is bound to that key.
+    """
+    recorder.emit(
+        actor="client",
+        phase="token",
+        summary="Client begins the client-credentials grant (no user involved).",
+        detail=(
+            "Unlike the authorization-code grant, there is no user, browser, "
+            "redirect, or consent here. The client acts on its own behalf — it IS "
+            "the principal — and goes straight to the token endpoint to "
+            "authenticate and request a token."
+        ),
+        outcome="ok",
+        knowledge_delta={
+            "client": KnowledgeState(has=["client_id", "client_credential"]),
+        },
+        spec_refs=[SpecRef(rfc="RFC 6749", section="§4.4")],
+    )
+    presented = _client_presented(registered, method, fresh=True)
+    dpop_proof = (
+        crypto.create_dpop_proof(dpop_key, htm="POST", htu=TOKEN_URL)
+        if dpop_key is not None
+        else None
+    )
+    token_response = endpoint.token(
+        method=method, presented=presented, presenter="client", dpop_proof=dpop_proof
+    )
+    recorder.emit(
+        actor="client",
+        phase="token",
+        summary="Client holds an access token issued to itself as the principal.",
+        detail=(
+            "The client received a token whose subject is the client, not a user. "
+            "It can now call machine-to-machine APIs as itself. No user ever "
+            "participated in this exchange."
+        ),
+        outcome="ok",
+        knowledge_delta={"client": KnowledgeState(has=["access_token"])},
+        spec_refs=[SpecRef(rfc="RFC 6749", section="§4.4.3")],
+    )
+    return token_response
 
 
 def _client_presented(
@@ -622,3 +757,11 @@ def _leak_blocked_verdict(recorder: Recorder, method: str, at_seq: Optional[int]
 
 register(Runner(id="client_credentials", matches=_matches_happy, run=_run_happy, order=70))
 register(Runner(id="static_secret_leak", matches=_matches_leak, run=_run_leak, order=80))
+register(
+    Runner(
+        id="client_credentials_token_replay",
+        matches=_matches_token_replay,
+        run=_run_token_replay,
+        order=85,
+    )
+)
