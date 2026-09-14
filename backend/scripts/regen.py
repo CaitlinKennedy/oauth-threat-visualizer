@@ -42,9 +42,9 @@ ENUMS_PATH = BACKEND / "otv" / "contract_enums.json"
 BACKEND_FIXTURES = BACKEND / "otv" / "fixtures"
 FRONTEND_FIXTURES = REPO / "frontend" / "src" / "fixtures"
 
-def _cfg(caps=None, atks=None) -> ScenarioConfig:
+def _cfg(caps=None, atks=None, grant="authorization_code") -> ScenarioConfig:
     return ScenarioConfig(
-        grant="authorization_code",
+        grant=grant,
         capabilities=caps or {},
         attacks=atks or {},
     )
@@ -90,6 +90,57 @@ TRACE_FIXTURES: List[Tuple[str, str, ScenarioConfig]] = [
         "replay.json",
         _cfg(atks={"code_token_replay": FeatureState(active=True)}),
     ),
+    # Phase 5 — client credentials + client authentication methods.
+    (
+        "client_credentials_secret",
+        "clientCredentialsSecret.json",
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "client_secret_basic"}
+                )
+            },
+        ),
+    ),
+    (
+        "client_credentials_jwt",
+        "clientCredentialsJwt.json",
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "private_key_jwt"}
+                )
+            },
+        ),
+    ),
+    (
+        "static_secret_leak_secret",
+        "staticSecretLeakSecret.json",
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "client_secret_basic"}
+                )
+            },
+            atks={"static_secret_leak": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "static_secret_leak_jwt",
+        "staticSecretLeakJwt.json",
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "private_key_jwt"}
+                )
+            },
+            atks={"static_secret_leak": FeatureState(active=True)},
+        ),
+    ),
 ]
 
 # The paired-diff fixtures (a CompareResponse each, not a Trace):
@@ -117,6 +168,28 @@ COMPARE_FIXTURES: List[Tuple[str, str, ScenarioConfig, ScenarioConfig]] = [
         _cfg(
             caps={"state": FeatureState(active=True)},
             atks={"csrf_code_injection": FeatureState(active=True)},
+        ),
+    ),
+    (
+        "client_auth_leak_compare",
+        "clientAuthLeakCompare.json",
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "client_secret_basic"}
+                )
+            },
+            atks={"static_secret_leak": FeatureState(active=True)},
+        ),
+        _cfg(
+            grant="client_credentials",
+            caps={
+                "client_auth": FeatureState(
+                    active=True, params={"method": "private_key_jwt"}
+                )
+            },
+            atks={"static_secret_leak": FeatureState(active=True)},
         ),
     ),
 ]

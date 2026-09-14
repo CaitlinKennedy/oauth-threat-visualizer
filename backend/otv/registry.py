@@ -28,11 +28,12 @@ from .contract import SpecRef
 
 # The highest phase whose capabilities/attacks are actually runnable in this
 # build. ``RegistryItem.available`` is derived from it, so shipping a new phase is
-# a one-line bump here rather than edits scattered across items. Phase 2 makes
-# ``state``, ``code_token_replay`` and ``csrf_code_injection`` runnable (on top of
-# Phase 1's ``pkce`` and ``auth_code_injection``); every later toggle stays
-# unavailable until its own phase lands.
-CURRENT_PHASE = 2
+# a one-line bump here rather than edits scattered across items. Phase 5 makes the
+# ``client_auth`` capability and the ``static_secret_leak`` attack runnable (on top
+# of Phases 1–2's ``pkce`` / ``auth_code_injection`` and ``state`` / replay / CSRF);
+# every later toggle (``dpop``, ``issuer_id``, ``phish*``) stays unavailable until
+# its own phase lands.
+CURRENT_PHASE = 5
 
 
 @dataclass(frozen=True)

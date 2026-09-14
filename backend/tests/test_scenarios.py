@@ -117,7 +117,8 @@ def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
                 capabilities={"dpop": FeatureState(active=True)},
             )
         )
-    # A later-phase attack (static-secret leak, Phase 5) is still refused.
+    # The static-secret leak is a client-credentials attack; there is no runner for
+    # it under the authorization-code grant, so that combination is still refused.
     with pytest.raises(UnsupportedScenario):
         run(
             ScenarioConfig(
@@ -125,6 +126,8 @@ def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
                 attacks={"static_secret_leak": FeatureState(active=True)},
             )
         )
-    # Other grants are not implemented yet.
+    # Grants with no runner yet (jwt_bearer, implicit) are still unsupported.
     with pytest.raises(UnsupportedScenario):
-        run(ScenarioConfig(grant="client_credentials"))
+        run(ScenarioConfig(grant="jwt_bearer"))
+    with pytest.raises(UnsupportedScenario):
+        run(ScenarioConfig(grant="implicit"))

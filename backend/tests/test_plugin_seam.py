@@ -39,6 +39,7 @@ def test_capability_registration_order_is_stable_filename_sorted():
     assert [c.id for c in registry.CAPABILITIES] == [
         "pkce",
         "state",
+        "client_auth",
         "dpop",
         "issuer_id",
     ]
@@ -61,6 +62,8 @@ def test_runner_registration_order_is_stable_filename_sorted():
         "auth_code_injection",
         "code_token_replay",
         "csrf_code_injection",
+        "client_credentials",
+        "static_secret_leak",
     ]
 
 
