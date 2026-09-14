@@ -44,8 +44,8 @@ export function VerdictBanner({ trace, open, onToggle, catalogLabels = {} }: Pro
     >
       <Badge
         ok={!attackerWon}
-        okText="Attacker obtained no token"
-        failText="Attacker obtained a token"
+        okText="Attacker gained access: NO"
+        failText="Attacker gained access: YES"
       />
       <Badge
         ok={v.user_got_token && v.user_accessed_resource}
