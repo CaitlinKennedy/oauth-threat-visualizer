@@ -579,6 +579,7 @@ export default function App() {
             side={side}
             onSetSide={setSideKeepStep}
             currentSeq={current?.seq ?? null}
+            catalogLabels={catalogLabels}
           />
         )}
 
