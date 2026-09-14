@@ -184,6 +184,285 @@ PRESETS: List[Dict[str, Any]] = [
         },
         "available": True,
     },
+    {
+        "id": "jwt_bearer_happy",
+        "flow": 6,
+        "name": "JWT bearer grant — happy path",
+        "tagline": "A user-scoped token with no browser, redirect, or consent.",
+        "description": (
+            "A client presents a real signed JWT assertion (sub = the user) directly "
+            "to the token endpoint and receives a user-scoped access token. There is no "
+            "front channel at all — so auth-code injection, redirect CSRF and mix-up "
+            "have nothing to target. The trust now rests on the signing key and the "
+            "assertion instead."
+        ),
+        "config": {
+            "grant": "jwt_bearer",
+            "capabilities": {},
+            "attacks": {},
+        },
+        "available": True,
+    },
+    {
+        "id": "token_replay_bearer",
+        "flow": 6,
+        "name": "Token replay (plain bearer)",
+        "tagline": "Can a stolen access token be reused?",
+        "description": (
+            "The honest client obtains an access token and reads its resource. The "
+            "attacker steals a copy of the token and replays it at the resource "
+            "server. With a plain bearer token, possession is all that is required — "
+            "the attacker reads the victim's resource."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {"dpop": {"active": False}},
+            "attacks": {"token_replay": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        "id": "client_credentials_secret",
+        "flow": 1,
+        "name": "Client credentials (machine-to-machine)",
+        "tagline": "OAuth with no user at all.",
+        "description": (
+            "The client-credentials grant: no user, no browser, no redirect. The "
+            "client authenticates directly at the token endpoint with a client secret "
+            "and the authorization server issues a token whose subject is the CLIENT "
+            "itself — the machine-to-machine contrast with the user-based grants."
+        ),
+        "config": {
+            "grant": "client_credentials",
+            "capabilities": {
+                "client_auth": {"active": True, "params": {"method": "client_secret_basic"}}
+            },
+            "attacks": {},
+        },
+        "available": True,
+    },
+    {
+        "id": "assertion_replay_no_protection",
+        "flow": 6,
+        "name": "Assertion replay (no protection)",
+        "tagline": "The trust relocated — now it can be replayed.",
+        "description": (
+            "The attacker captures a still-valid assertion off the back channel and "
+            "replays it at the token endpoint. With no replay protection the server "
+            "honors the reused assertion and issues the attacker a user-scoped token: "
+            "the counter-lesson that removing the front channel does not remove all "
+            "risk, it moves it onto the assertion."
+        ),
+        "config": {
+            "grant": "jwt_bearer",
+            "capabilities": {"assertion_replay_protection": {"active": False}},
+            "attacks": {"assertion_replay": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        "id": "token_replay_dpop",
+        "flow": 6,
+        "name": "Token replay defeated by DPoP",
+        "tagline": "Why bind the token to a key?",
+        "description": (
+            "The identical theft now fails: the token is sender-constrained via "
+            "cnf.jkt, so the resource server requires a DPoP proof from the bound "
+            "key. The attacker holds the token but not the client's private key, so "
+            "the key-binding check rejects the replay. This is why DPoP defeats token "
+            "theft at the resource server."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {"dpop": {"active": True}},
+            "attacks": {"token_replay": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        "id": "client_credentials_jwt",
+        "flow": 1,
+        "name": "Client credentials with private_key_jwt",
+        "tagline": "Prove identity with a key, not a secret.",
+        "description": (
+            "The same machine-to-machine flow, but the client authenticates with a "
+            "signed private_key_jwt assertion instead of a shared secret. The "
+            "authorization server holds only the client's public key, so no static "
+            "credential ever transits the wire."
+        ),
+        "config": {
+            "grant": "client_credentials",
+            "capabilities": {
+                "client_auth": {"active": True, "params": {"method": "private_key_jwt"}}
+            },
+            "attacks": {},
+        },
+        "available": True,
+    },
+    {
+        "id": "assertion_replay_protected",
+        "flow": 6,
+        "name": "Assertion replay defeated by one-time jti",
+        "tagline": "Why an assertion is bound to key + audience + time + a single use.",
+        "description": (
+            "The identical replay now fails: the assertion's signature and claims still "
+            "verify, but its jti was already redeemed and one-time use is enforced (with "
+            "a short exp and aud=token endpoint behind it). The attacker cannot mint a "
+            "fresh assertion because it lacks the issuer's signing key."
+        ),
+        "config": {
+            "grant": "jwt_bearer",
+            "capabilities": {"assertion_replay_protection": {"active": True}},
+            "attacks": {"assertion_replay": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        "id": "static_secret_leak_secret",
+        "flow": 2,
+        "name": "Static-secret leak (attacker wins)",
+        "tagline": "A leaked secret that never rotates.",
+        "description": (
+            "The client's static client_secret leaks and the attacker replays it. "
+            "Because a shared static secret IS the client's authority and never "
+            "rotates, the attacker authenticates as the client and mints its own "
+            "token — permanent impersonation."
+        ),
+        "config": {
+            "grant": "client_credentials",
+            "capabilities": {
+                "client_auth": {"active": True, "params": {"method": "client_secret_basic"}}
+            },
+            "attacks": {"static_secret_leak": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        # The flow-2↔3 gesture for the JWT bearer grant: flip replay protection and
+        # watch the replay go from a user-scoped token for the attacker to a block at
+        # the one-time jti check.
+        "id": "assertion_replay_compare",
+        "flow": 6,
+        "mode": "compare",
+        "name": "Flip replay protection: replay blocked vs. not",
+        "tagline": "Watch the one step where one-time jti decides the outcome.",
+        "description": (
+            "Runs the same assertion replay with replay protection off and on, side by "
+            "side, and marks the single step where the two runs diverge — the token "
+            "endpoint's one-time jti check on the replayed assertion."
+        ),
+        "config": {
+            "grant": "jwt_bearer",
+            "capabilities": {"assertion_replay_protection": {"active": True}},
+            "attacks": {"assertion_replay": {"active": True, "params": {}}},
+        },
+        "compare": {
+            "baseline": {
+                "grant": "jwt_bearer",
+                "capabilities": {"assertion_replay_protection": {"active": False}},
+                "attacks": {"assertion_replay": {"active": True, "params": {}}},
+            },
+            "variant": {
+                "grant": "jwt_bearer",
+                "capabilities": {"assertion_replay_protection": {"active": True}},
+                "attacks": {"assertion_replay": {"active": True, "params": {}}},
+            },
+        },
+        "available": True,
+    },
+    {
+        "id": "static_secret_leak_jwt",
+        "flow": 3,
+        "name": "Static-secret leak defeated by private_key_jwt",
+        "tagline": "Why bind client identity to a key?",
+        "description": (
+            "The identical leak now fails: with private_key_jwt there is no static "
+            "secret to steal. The most an attacker can capture is a spent, short-lived "
+            "client_assertion, which fails real signature/expiry verification on "
+            "replay — and a fresh one cannot be forged without the client's private "
+            "key."
+        ),
+        "config": {
+            "grant": "client_credentials",
+            "capabilities": {
+                "client_auth": {"active": True, "params": {"method": "private_key_jwt"}}
+            },
+            "attacks": {"static_secret_leak": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        # The flow-2↔3 gesture for client authentication: run the identical leak with
+        # a static secret vs. private_key_jwt, side by side, and mark the step where
+        # the two runs diverge (the client-authentication check that decides it).
+        "id": "client_auth_leak_compare",
+        "flow": 3,
+        "mode": "compare",
+        "name": "Flip client auth: leak wins vs. defeated",
+        "tagline": "Watch the one step where the auth method decides the outcome.",
+        "description": (
+            "Runs the same static-secret leak with client_secret_basic and with "
+            "private_key_jwt, side by side, and marks the client-authentication step "
+            "where the attacker's replay is accepted in one run and rejected in the "
+            "other."
+        ),
+        "config": {
+            "grant": "client_credentials",
+            "capabilities": {
+                "client_auth": {"active": True, "params": {"method": "private_key_jwt"}}
+            },
+            "attacks": {"static_secret_leak": {"active": True, "params": {}}},
+        },
+        "compare": {
+            "baseline": {
+                "grant": "client_credentials",
+                "capabilities": {
+                    "client_auth": {"active": True, "params": {"method": "client_secret_basic"}}
+                },
+                "attacks": {"static_secret_leak": {"active": True, "params": {}}},
+            },
+            "variant": {
+                "grant": "client_credentials",
+                "capabilities": {
+                    "client_auth": {"active": True, "params": {"method": "private_key_jwt"}}
+                },
+                "attacks": {"static_secret_leak": {"active": True, "params": {}}},
+            },
+        },
+        "available": True,
+    },
+    {
+        # The flow-2↔3 gesture for DPoP: flip 'dpop' and watch the stolen token go
+        # from a successful read to a block at the resource server's key binding.
+        "id": "token_replay_compare",
+        "flow": 6,
+        "mode": "compare",
+        "name": "Flip DPoP: token replay blocked vs. not",
+        "tagline": "Watch the one step where DPoP decides the outcome.",
+        "description": (
+            "Runs the same access-token replay with DPoP off and DPoP on, side by "
+            "side, and marks the step where the two runs diverge — the resource "
+            "server's DPoP key-binding check."
+        ),
+        "config": {
+            "grant": "authorization_code",
+            "capabilities": {"dpop": {"active": True}},
+            "attacks": {"token_replay": {"active": True, "params": {}}},
+        },
+        "compare": {
+            "baseline": {
+                "grant": "authorization_code",
+                "capabilities": {"dpop": {"active": False}},
+                "attacks": {"token_replay": {"active": True, "params": {}}},
+            },
+            "variant": {
+                "grant": "authorization_code",
+                "capabilities": {"dpop": {"active": True}},
+                "attacks": {"token_replay": {"active": True, "params": {}}},
+            },
+        },
+        "available": True,
+    },
 ]
 
 

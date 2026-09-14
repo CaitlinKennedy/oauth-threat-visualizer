@@ -71,8 +71,11 @@ def test_applies_to_grants_populated_sensibly():
 def test_availability_reflects_current_phase():
     cat = registry.to_catalog_dict()
     by_id = {i["id"]: i for i in [*cat["capabilities"], *cat["attacks"]]}
-    # Phase 2 makes pkce + auth-code injection, plus state / replay / CSRF,
-    # runnable; nothing later yet.
+    # Through Phase 6: Phase 1's pkce + auth-code injection, Phase 2's state /
+    # replay / CSRF, Phase 4's assertion replay protection + assertion replay,
+    # Phase 5's client_auth + static-secret-leak, and Phase 6's dpop + token
+    # replay are all runnable; issuer_id and the phishing attacks (Phase 7) stay
+    # unavailable until their own phase.
     available = {i["id"] for i in [*cat["capabilities"], *cat["attacks"]] if i["available"]}
     assert available == {
         "pkce",
@@ -80,6 +83,12 @@ def test_availability_reflects_current_phase():
         "state",
         "code_token_replay",
         "csrf_code_injection",
+        "assertion_replay_protection",
+        "assertion_replay",
+        "client_auth",
+        "static_secret_leak",
+        "dpop",
+        "token_replay",
     }
     # And availability is exactly "phase <= CURRENT_PHASE".
     for item in by_id.values():

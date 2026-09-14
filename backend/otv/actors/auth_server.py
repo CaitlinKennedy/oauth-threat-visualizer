@@ -556,6 +556,18 @@ class AuthServerImpl(AuthServer):
 
         stored.used = True  # single-use enforcement
 
+        # DPoP sender-constraining (RFC 9449 §5–§6): when the client presents a
+        # DPoP proof with the exchange, the server verifies it and binds the token
+        # to the proof's key by stamping ``cnf.jkt`` (the RFC 7638 thumbprint).
+        # Absent a proof this is a no-op, so a non-DPoP exchange is byte-identical.
+        extra_claims = None
+        dpop_proof = request.get("dpop")
+        if dpop_proof is not None:
+            bound = crypto.verify_dpop_proof(
+                dpop_proof, htm="POST", htu=self.env.token_url
+            )
+            extra_claims = {"cnf": {"jkt": bound["jkt"]}}
+
         access_token = crypto.sign_access_token(
             self.signing_key,
             issuer=self.env.issuer,
@@ -564,6 +576,7 @@ class AuthServerImpl(AuthServer):
             client_id=client_id,
             scope=stored.scope,
             ttl_seconds=300,
+            extra_claims=extra_claims,
         )
 
         self.recorder.emit(

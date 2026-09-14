@@ -109,15 +109,24 @@ def test_single_use_code_is_enforced(happy_trace):
 
 
 def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
-    # A later-phase capability (dpop, Phase 6) is still refused.
+    # A later-phase capability (issuer_id, Phase 7) is still refused.
     with pytest.raises(UnsupportedScenario):
         run(
             ScenarioConfig(
                 grant="authorization_code",
-                capabilities={"dpop": FeatureState(active=True)},
+                capabilities={"issuer_id": FeatureState(active=True)},
             )
         )
-    # A later-phase attack (static-secret leak, Phase 5) is still refused.
+    # A later-phase attack (phishing, Phase 7) is still refused.
+    with pytest.raises(UnsupportedScenario):
+        run(
+            ScenarioConfig(
+                grant="authorization_code",
+                attacks={"phishing": FeatureState(active=True)},
+            )
+        )
+    # The static-secret leak is a client-credentials attack; there is no runner for
+    # it under the authorization-code grant, so that combination is still refused.
     with pytest.raises(UnsupportedScenario):
         run(
             ScenarioConfig(
@@ -125,6 +134,23 @@ def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
                 attacks={"static_secret_leak": FeatureState(active=True)},
             )
         )
-    # Other grants are not implemented yet.
+    # 'implicit' is the one GRANTS entry with no runner yet (authorization_code,
+    # client_credentials, and jwt_bearer are all live by Phase 6).
     with pytest.raises(UnsupportedScenario):
-        run(ScenarioConfig(grant="client_credentials"))
+        run(ScenarioConfig(grant="implicit"))
+
+
+def test_feature_mismatched_with_grant_is_unsupported():
+    """A hand-built config can request a feature that is available in this build
+    but doesn't apply to the requested grant at all — e.g. auth-code injection
+    (an authorization_code-only attack, per its ``applies_to_grants``) under the
+    jwt_bearer grant. That combination must still be refused, so a runner never
+    gets selected on the grant alone while the trace silently ignores the
+    mismatched attack."""
+    with pytest.raises(UnsupportedScenario):
+        run(
+            ScenarioConfig(
+                grant="jwt_bearer",
+                attacks={"auth_code_injection": FeatureState(active=True)},
+            )
+        )
