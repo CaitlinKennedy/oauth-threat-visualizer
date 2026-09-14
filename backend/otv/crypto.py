@@ -49,6 +49,57 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
+# --- EC JWK coordinates (RFC 7518 §6.2.1.2/.3) ------------------------------
+
+# JWK EC coordinates MUST be encoded at the curve's full field width (RFC 7518
+# §6.2.1.2/.3), zero-padded on the left when the coordinate's own big-endian
+# encoding is shorter. This is unlike RSA's ``n``/``e``, which use the
+# variable/minimal-length integer encoding. PyJWT's own
+# ``ECAlgorithm.to_jwk()`` uses the minimal-length encoding for x/y too (it
+# calls the same ``to_base64url_uint`` it uses for RSA), so roughly 1 in 256
+# times per coordinate — whenever the top byte happens to be zero — it emits a
+# JWK one byte short. PyJWT's own ``ECAlgorithm.from_jwk`` / ``PyJWK.from_dict``
+# then refuse to parse that JWK back ("Coords should be 32 bytes for curve
+# P-256"), and any thumbprint computed from the unpadded coordinate is simply
+# wrong (RFC 7638). Every EC public JWK in this module is built by
+# :func:`_ec_public_jwk` instead, so the padding is applied exactly once and
+# both the emitted JWK and its thumbprint always agree.
+_EC_CURVE_NAMES = {
+    "secp256r1": "P-256",
+    "secp384r1": "P-384",
+    "secp521r1": "P-521",
+}
+
+
+def _ec_coordinate_byte_length(curve: ec.EllipticCurve) -> int:
+    """Field-element byte length for an EC curve, derived from its bit size.
+
+    32 for P-256, but computed rather than hardcoded so another curve (were
+    one ever added) gets the right width automatically.
+    """
+    return (curve.key_size + 7) // 8
+
+
+def _ec_public_jwk(public_key: ec.EllipticCurvePublicKey) -> Dict[str, str]:
+    """The canonical ``{kty, crv, x, y}`` JWK for an EC public key.
+
+    The SINGLE place EC coordinates are turned into JWK members — used both
+    for the JWK that gets signed/verified/embedded in DPoP proofs and as the
+    input to :func:`jwk_thumbprint`, so the two can never drift apart (which
+    would silently break DPoP's ``cnf.jkt`` binding). ``x`` and ``y`` are
+    left-zero-padded to the curve's full coordinate width before
+    base64url-encoding (no padding characters in the base64url itself).
+    """
+    curve_name = _EC_CURVE_NAMES.get(public_key.curve.name)
+    if curve_name is None:
+        raise ValueError(f"unsupported EC curve {public_key.curve.name!r}")
+    coord_len = _ec_coordinate_byte_length(public_key.curve)
+    numbers = public_key.public_numbers()
+    x = numbers.x.to_bytes(coord_len, "big")
+    y = numbers.y.to_bytes(coord_len, "big")
+    return {"kty": "EC", "crv": curve_name, "x": _b64url(x), "y": _b64url(y)}
+
+
 # --- PKCE (RFC 7636) -------------------------------------------------------
 
 
@@ -135,12 +186,17 @@ class SigningKey:
 
     def public_jwk(self) -> Dict[str, Any]:
         """Return the public key as a JWK dict (with ``kid``, ``use``, ``alg``)."""
-        # PyJWT emits a spec-correct public JWK (RSA: n, e; EC: crv, x, y); we
-        # enrich the metadata the same way for either key type.
-        algorithm_cls = (
-            jwt.algorithms.ECAlgorithm if self.alg == "ES256" else jwt.algorithms.RSAAlgorithm
-        )
-        jwk = json.loads(algorithm_cls.to_jwk(self._public_key_obj()))
+        public_key = self._public_key_obj()
+        if self.alg == "ES256":
+            # Our own helper, not PyJWT's ECAlgorithm.to_jwk — see
+            # _ec_public_jwk for why (unpadded coordinates).
+            jwk = _ec_public_jwk(public_key)
+        else:
+            # RSA's n/e have no fixed-width requirement (RFC 7518 §6.3.1/.2):
+            # PyJWT's minimal-length encoding is the conventional, correct
+            # form here, and n never has a leading zero byte in practice
+            # (an RSA modulus is generated with its top bit set).
+            jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(public_key))
         jwk.update({"kid": self.kid, "use": "sig", "alg": self.alg})
         return jwk
 
@@ -402,10 +458,7 @@ class DpopKey:
 
     def public_jwk(self) -> Dict[str, Any]:
         """The public key as a minimal EC JWK (``kty``/``crv``/``x``/``y``)."""
-        jwk = json.loads(
-            jwt.algorithms.ECAlgorithm.to_jwk(self._private_key_obj().public_key())
-        )
-        return {"kty": jwk["kty"], "crv": jwk["crv"], "x": jwk["x"], "y": jwk["y"]}
+        return _ec_public_jwk(self._private_key_obj().public_key())
 
     def thumbprint(self) -> str:
         """This key's RFC 7638 thumbprint — the value bound into ``cnf.jkt``."""
