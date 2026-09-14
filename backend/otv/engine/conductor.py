@@ -57,6 +57,11 @@ def _reject_unavailable_features(config: ScenarioConfig) -> None:
     Prevents config and trace from disagreeing: if a caller turns on a feature the
     registry marks not-yet-available, we refuse the run rather than silently
     ignore the toggle and emit a trace that contradicts the requested config.
+    Also rejects a feature that doesn't apply to the requested grant at all
+    (e.g. an authorization-code-only attack under ``client_credentials``) — the
+    picker hides these, but a hand-built config could still request one, which
+    would otherwise fall through to whichever runner matches on other grounds
+    and hand back a trace that disagrees with the request.
     """
     for kind, active in (
         ("capability", config.active_capabilities()),
@@ -69,4 +74,8 @@ def _reject_unavailable_features(config: ScenarioConfig) -> None:
             if not item.available:
                 raise UnsupportedScenario(
                     f"{kind} {fid!r} is not implemented until phase {item.phase}"
+                )
+            if item.applies_to_grants and config.grant not in item.applies_to_grants:
+                raise UnsupportedScenario(
+                    f"{kind} {fid!r} does not apply to grant {config.grant!r}"
                 )

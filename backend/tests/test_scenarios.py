@@ -138,3 +138,19 @@ def test_later_phase_features_and_other_grants_are_unsupported_this_phase():
     # client_credentials, and jwt_bearer are all live by Phase 6).
     with pytest.raises(UnsupportedScenario):
         run(ScenarioConfig(grant="implicit"))
+
+
+def test_feature_mismatched_with_grant_is_unsupported():
+    """A hand-built config can request a feature that is available in this build
+    but doesn't apply to the requested grant at all — e.g. auth-code injection
+    (an authorization_code-only attack, per its ``applies_to_grants``) under the
+    jwt_bearer grant. That combination must still be refused, so a runner never
+    gets selected on the grant alone while the trace silently ignores the
+    mismatched attack."""
+    with pytest.raises(UnsupportedScenario):
+        run(
+            ScenarioConfig(
+                grant="jwt_bearer",
+                attacks={"auth_code_injection": FeatureState(active=True)},
+            )
+        )
