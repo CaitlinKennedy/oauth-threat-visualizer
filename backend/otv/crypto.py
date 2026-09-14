@@ -211,6 +211,80 @@ def decode_claims_unverified(token: str) -> Dict[str, Any]:
     return jwt.decode(token, options={"verify_signature": False})
 
 
+# --- JWT bearer assertions (RFC 7523) --------------------------------------
+
+
+def sign_assertion(
+    key: SigningKey,
+    *,
+    issuer: str,
+    subject: str,
+    audience: str,
+    ttl_seconds: int = 60,
+    jti: str | None = None,
+    extra_claims: Dict[str, Any] | None = None,
+) -> str:
+    """Sign a real JWT bearer assertion (RS256), RFC 7523 §3.
+
+    The assertion vouches for ``subject`` (the principal — here the user) and is
+    signed by ``issuer``: a party the authorization server trusts and whose public
+    key it holds. ``audience`` MUST be the AS token endpoint, so an assertion
+    minted for one endpoint cannot be presented to another. A fresh ``jti`` and a
+    short ``exp`` are what make the assertion one-time and short-lived (RFC 7523
+    §3, items 4/6) — the two properties, with the audience binding, that a replay
+    cannot get around.
+    """
+    now = int(time.time())
+    claims: Dict[str, Any] = {
+        "iss": issuer,
+        "sub": subject,
+        "aud": audience,
+        "iat": now,
+        "nbf": now,
+        "exp": now + ttl_seconds,
+        "jti": jti or uuid.uuid4().hex,
+    }
+    if extra_claims:
+        claims.update(extra_claims)
+    return jwt.encode(
+        claims,
+        key._private_pem,
+        algorithm=_ALG,
+        headers={"kid": key.kid, "typ": "JWT"},
+    )
+
+
+def verify_assertion(
+    token: str,
+    *,
+    jwks: Dict[str, Any],
+    issuer: str,
+    audience: str,
+) -> Dict[str, Any]:
+    """Verify a JWT bearer assertion against the issuer's JWKS (RFC 7523 §3).
+
+    Enforces the JWS signature (against the issuer's published key), ``iss``,
+    ``aud`` = the token endpoint, and the ``exp``/``nbf`` time window, and requires
+    a ``sub`` (the principal the assertion authorizes) and a ``jti``. Raises a
+    ``jwt.PyJWTError`` subclass on any failure (bad signature, expired, wrong
+    issuer/audience, missing claim, unknown ``kid``); returns the decoded claims on
+    success. Replay defence (``jti`` one-time use) is enforced by the caller's
+    seen-``jti`` store, not here — this function has no memory across calls.
+    """
+    header = jwt.get_unverified_header(token)
+    kid = header.get("kid")
+    signing_key = _select_jwk(jwks, kid)
+    public_key = jwt.PyJWK.from_dict(signing_key).key
+    return jwt.decode(
+        token,
+        public_key,
+        algorithms=[_ALG],
+        audience=audience,
+        issuer=issuer,
+        options={"require": ["exp", "iat", "nbf", "iss", "aud", "sub", "jti"]},
+    )
+
+
 def _select_jwk(jwks: Dict[str, Any], kid: str | None) -> Dict[str, Any]:
     keys: List[Dict[str, Any]] = jwks.get("keys", [])
     if kid is not None:

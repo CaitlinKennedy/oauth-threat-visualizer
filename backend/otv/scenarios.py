@@ -184,6 +184,95 @@ PRESETS: List[Dict[str, Any]] = [
         },
         "available": True,
     },
+    {
+        "id": "jwt_bearer_happy",
+        "flow": 6,
+        "name": "JWT bearer grant — happy path",
+        "tagline": "A user-scoped token with no browser, redirect, or consent.",
+        "description": (
+            "A client presents a real signed JWT assertion (sub = the user) directly "
+            "to the token endpoint and receives a user-scoped access token. There is no "
+            "front channel at all — so auth-code injection, redirect CSRF and mix-up "
+            "have nothing to target. The trust now rests on the signing key and the "
+            "assertion instead."
+        ),
+        "config": {
+            "grant": "jwt_bearer",
+            "capabilities": {},
+            "attacks": {},
+        },
+        "available": True,
+    },
+    {
+        "id": "assertion_replay_no_protection",
+        "flow": 6,
+        "name": "Assertion replay (no protection)",
+        "tagline": "The trust relocated — now it can be replayed.",
+        "description": (
+            "The attacker captures a still-valid assertion off the back channel and "
+            "replays it at the token endpoint. With no replay protection the server "
+            "honors the reused assertion and issues the attacker a user-scoped token: "
+            "the counter-lesson that removing the front channel does not remove all "
+            "risk, it moves it onto the assertion."
+        ),
+        "config": {
+            "grant": "jwt_bearer",
+            "capabilities": {"assertion_replay_protection": {"active": False}},
+            "attacks": {"assertion_replay": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        "id": "assertion_replay_protected",
+        "flow": 6,
+        "name": "Assertion replay defeated by one-time jti",
+        "tagline": "Why an assertion is bound to key + audience + time + a single use.",
+        "description": (
+            "The identical replay now fails: the assertion's signature and claims still "
+            "verify, but its jti was already redeemed and one-time use is enforced (with "
+            "a short exp and aud=token endpoint behind it). The attacker cannot mint a "
+            "fresh assertion because it lacks the issuer's signing key."
+        ),
+        "config": {
+            "grant": "jwt_bearer",
+            "capabilities": {"assertion_replay_protection": {"active": True}},
+            "attacks": {"assertion_replay": {"active": True, "params": {}}},
+        },
+        "available": True,
+    },
+    {
+        # The flow-2↔3 gesture for the JWT bearer grant: flip replay protection and
+        # watch the replay go from a user-scoped token for the attacker to a block at
+        # the one-time jti check.
+        "id": "assertion_replay_compare",
+        "flow": 6,
+        "mode": "compare",
+        "name": "Flip replay protection: replay blocked vs. not",
+        "tagline": "Watch the one step where one-time jti decides the outcome.",
+        "description": (
+            "Runs the same assertion replay with replay protection off and on, side by "
+            "side, and marks the single step where the two runs diverge — the token "
+            "endpoint's one-time jti check on the replayed assertion."
+        ),
+        "config": {
+            "grant": "jwt_bearer",
+            "capabilities": {"assertion_replay_protection": {"active": True}},
+            "attacks": {"assertion_replay": {"active": True, "params": {}}},
+        },
+        "compare": {
+            "baseline": {
+                "grant": "jwt_bearer",
+                "capabilities": {"assertion_replay_protection": {"active": False}},
+                "attacks": {"assertion_replay": {"active": True, "params": {}}},
+            },
+            "variant": {
+                "grant": "jwt_bearer",
+                "capabilities": {"assertion_replay_protection": {"active": True}},
+                "attacks": {"assertion_replay": {"active": True, "params": {}}},
+            },
+        },
+        "available": True,
+    },
 ]
 
 

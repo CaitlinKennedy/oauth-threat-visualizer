@@ -1,0 +1,359 @@
+{
+  "correlation_id": "run_1YT6AhL4R0OMsBfyPif5VyYky67c20cdoc8E2L6CGpk",
+  "config": {
+    "grant": "jwt_bearer",
+    "capabilities": {},
+    "attacks": {}
+  },
+  "verdict": {
+    "attacker_got_token": false,
+    "user_got_token": true,
+    "user_accessed_resource": true,
+    "one_line": "User obtained an access token: YES \u2014 the client exchanged a signed JWT assertion directly for a user-scoped token, with no browser, redirect, or consent. Attacker obtained an access token: NO \u2014 no attack was attempted, and with no front channel the front-channel attacks do not apply here.",
+    "responsible_capabilities": []
+  },
+  "events": [
+    {
+      "seq": 1,
+      "actor": "client",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Client mints and signs a JWT bearer assertion.",
+      "detail": "There is no authorization request, redirect, or consent screen. The client (a trusted issuer for its users) signs a short-lived assertion with its own private key: 'iss' identifies the issuer, 'sub' is the user the token will be scoped to, 'aud' is the token endpoint, and a fresh 'jti' plus a short 'exp' make it one-time and time-boxed. Only the assertion's public key is registered with the authorization server; the private key never leaves the client.",
+      "outcome": "ok",
+      "refs": [],
+      "http": {
+        "request": {
+          "method": "POST",
+          "url": "demo-web-app/mint-assertion",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "iss": "demo-web-app",
+            "sub": "user-8f31c2",
+            "aud": "https://auth.oauthlab.internal/oauth/token",
+            "exp": 1789343872,
+            "jti": "688ac55b5f20473f8154f7c16e1c5cdc"
+          }
+        },
+        "highlight": [
+          "response.body.sub",
+          "response.body.aud",
+          "response.body.jti"
+        ],
+        "source_actor": "client",
+        "target_actor": "client"
+      },
+      "knowledge_delta": {
+        "client": {
+          "has": [
+            "assertion_signing_key",
+            "jwt_assertion"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 7523",
+          "section": "\u00a73"
+        }
+      ]
+    },
+    {
+      "seq": 2,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Token endpoint receives the JWT bearer assertion.",
+      "detail": "The caller presents grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer with a signed assertion, directly over the back channel. The server will verify the assertion before issuing anything.",
+      "outcome": "ok",
+      "refs": [
+        1
+      ],
+      "http": {
+        "request": {
+          "method": "POST",
+          "url": "https://auth.oauthlab.internal/oauth/token",
+          "headers": {
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          "body": {
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": "<signed_jwt_assertion>"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "processing": true
+          }
+        },
+        "highlight": [
+          "request.body.grant_type",
+          "request.body.assertion"
+        ],
+        "source_actor": "client",
+        "target_actor": "auth_server"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 7523",
+          "section": "\u00a72.1"
+        }
+      ]
+    },
+    {
+      "seq": 3,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Token endpoint verifies the assertion signature and claims.",
+      "detail": "The server recomputes the JWS signature against the issuer's published key and checks that 'iss' is a trusted issuer, 'aud' is this token endpoint, and the assertion is within its 'exp' window. Only an assertion the issuer actually signed, for this endpoint, and still in date is accepted.",
+      "outcome": "ok",
+      "refs": [
+        2
+      ],
+      "check": {
+        "name": "assertion_signature_and_claims",
+        "rule": "verify JWS via issuer JWKS AND iss trusted AND aud=token endpoint AND exp valid",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 7523",
+          "section": "\u00a73"
+        },
+        "expected": "valid signature, trusted iss, aud=token endpoint, unexpired",
+        "actual": "all checks passed"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 7523",
+          "section": "\u00a73"
+        }
+      ]
+    },
+    {
+      "seq": 4,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Token endpoint checks the assertion's jti for one-time use.",
+      "detail": "The server records this assertion's 'jti' as redeemed. A first redemption is fine; the same jti presented again is a replay.",
+      "outcome": "ok",
+      "refs": [
+        3
+      ],
+      "check": {
+        "name": "assertion_jti_single_use",
+        "rule": "assertion jti has not been redeemed before (within its exp window)",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 7523",
+          "section": "\u00a73"
+        },
+        "expected": "unused jti",
+        "actual": "unused jti"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 7523",
+          "section": "\u00a73"
+        }
+      ]
+    },
+    {
+      "seq": 5,
+      "actor": "auth_server",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Authorization server issues a signed JWT access token.",
+      "detail": "The assertion is valid and its jti now spent. The server signs a real RS256 access token scoped to the assertion's subject and returns it. The resource server verifies it against the same JWKS as any other token from this AS.",
+      "outcome": "ok",
+      "refs": [
+        4
+      ],
+      "http": {
+        "request": {
+          "method": "POST",
+          "url": "https://auth.oauthlab.internal/oauth/token",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFzLTIwMjYtMDkiLCJ0eXAiOiJhdCtqd3QifQ.eyJpc3MiOiJodHRwczovL2F1dGgub2F1dGhsYWIuaW50ZXJuYWwiLCJzdWIiOiJ1c2VyLThmMzFjMiIsImF1ZCI6Imh0dHBzOi8vYXBpLm9hdXRobGFiLmludGVybmFsIiwiY2xpZW50X2lkIjoiZGVtby13ZWItYXBwIiwic2NvcGUiOiJwcm9maWxlIGVtYWlsIiwiaWF0IjoxNzg5MzQzODEzLCJuYmYiOjE3ODkzNDM4MTMsImV4cCI6MTc4OTM0NDExMywianRpIjoiY2JmNzMyYzljYmJhNGM0ZDkyMmViMzYzNTY4NTc5NDMifQ.dKq07dyxpr0dGBBrrQLWrKL1bnmpc_4NRzCOTonF6OQnLJ3AxSM-aCUoQ-9G-g_Mx8iCuXRgQCzvZ_AKp1PkthCHhOtYNJBnyPosunkuqxVFttw2jl1n1VROSbxLFN5DDO1vd9HdC1Eyo34t5QsqWGsvbwwrgYJZidg92AdB7UaJ6AtY0oaGxICaSNJFtJCLgH4jzhVF8yFA7R5BTRWbfcd91N5WDHUFYTugEWSKAg2FkeNsJ-h8goBXz7O1clPYH9oyTpCpujGBwK8Qjf8sax4wIJPqSufAS0C8h80_6FOVvsDrEyAxild_1YWRU7UafDMQj1tlAQ_XLLLbQq8wbA",
+            "token_type": "Bearer",
+            "expires_in": 300,
+            "scope": "profile email"
+          }
+        },
+        "highlight": [
+          "response.body.access_token",
+          "response.body.token_type"
+        ],
+        "source_actor": "auth_server",
+        "target_actor": "client"
+      },
+      "knowledge_delta": {
+        "auth_server": {
+          "has": [
+            "access_token"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 7523",
+          "section": "\u00a72.1"
+        }
+      ]
+    },
+    {
+      "seq": 6,
+      "actor": "client",
+      "on_behalf_of": "user",
+      "phase": "token",
+      "summary": "Client receives and stores the access token.",
+      "detail": "The assertion verified and the token endpoint returned a signed, audience-scoped access token for the user \u2014 obtained without any front-channel interaction at all.",
+      "outcome": "ok",
+      "refs": [
+        5
+      ],
+      "knowledge_delta": {
+        "client": {
+          "has": [
+            "access_token"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 7523",
+          "section": "\u00a72.1"
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "actor": "resource_server",
+      "on_behalf_of": "user",
+      "phase": "resource",
+      "summary": "Resource server validates the access token.",
+      "detail": "The resource server verifies the JWT's signature against the authorization server's published JWKS and checks the expiry, issuer, audience, and token type (typ=at+jwt). Only a token that passes every check is honored.",
+      "outcome": "ok",
+      "refs": [
+        6
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://api.oauthlab.internal/userinfo",
+          "headers": {
+            "Authorization": "Bearer <access_token>"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {},
+          "body": {
+            "validated": true
+          }
+        },
+        "highlight": [
+          "request.headers.Authorization"
+        ],
+        "source_actor": "client",
+        "target_actor": "resource_server"
+      },
+      "check": {
+        "name": "access_token_validation",
+        "rule": "verify JWS signature via JWKS AND check exp/iss/aud/typ",
+        "result": "PASS",
+        "spec_ref": {
+          "rfc": "RFC 9068",
+          "section": "\u00a74"
+        },
+        "expected": "valid signature, unexpired, aud=resource server, typ=at+jwt",
+        "actual": "all checks passed"
+      },
+      "knowledge_delta": {
+        "resource_server": {
+          "has": [
+            "verified_token_claims"
+          ],
+          "lacks": []
+        }
+      },
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a77"
+        },
+        {
+          "rfc": "RFC 9068",
+          "section": "\u00a74"
+        }
+      ]
+    },
+    {
+      "seq": 8,
+      "actor": "resource_server",
+      "on_behalf_of": "user",
+      "phase": "resource",
+      "summary": "Resource server returns the protected resource.",
+      "detail": "Token validated. The resource server returns the protected profile resource for the subject named in the token, completing the flow: the user has authorized the client and the client has accessed the API.",
+      "outcome": "ok",
+      "refs": [
+        7
+      ],
+      "http": {
+        "request": {
+          "method": "GET",
+          "url": "https://api.oauthlab.internal/userinfo",
+          "headers": {}
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "sub": "user-8f31c2",
+            "username": "avery",
+            "name": "Avery Diaz",
+            "email": "avery@oauthlab.internal",
+            "scope": "profile email"
+          }
+        },
+        "highlight": [
+          "response.body.sub",
+          "response.body.scope"
+        ],
+        "source_actor": "resource_server",
+        "target_actor": "client"
+      },
+      "knowledge_delta": {},
+      "spec_refs": [
+        {
+          "rfc": "RFC 6749",
+          "section": "\u00a77"
+        }
+      ]
+    }
+  ],
+  "schema_version": "1.0",
+  "parent_id": null,
+  "chain_id": null
+}

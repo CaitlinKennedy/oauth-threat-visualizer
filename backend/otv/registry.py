@@ -28,11 +28,12 @@ from .contract import SpecRef
 
 # The highest phase whose capabilities/attacks are actually runnable in this
 # build. ``RegistryItem.available`` is derived from it, so shipping a new phase is
-# a one-line bump here rather than edits scattered across items. Phase 2 makes
-# ``state``, ``code_token_replay`` and ``csrf_code_injection`` runnable (on top of
-# Phase 1's ``pkce`` and ``auth_code_injection``); every later toggle stays
-# unavailable until its own phase lands.
-CURRENT_PHASE = 2
+# a one-line bump here rather than edits scattered across items. Phase 4 adds the
+# JWT bearer grant with ``assertion_replay_protection`` and the ``assertion_replay``
+# attack (on top of Phase 1's ``pkce``/``auth_code_injection`` and Phase 2's
+# ``state``/``code_token_replay``/``csrf_code_injection``); every later toggle
+# stays unavailable until its own phase lands.
+CURRENT_PHASE = 4
 
 
 @dataclass(frozen=True)

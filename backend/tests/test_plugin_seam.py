@@ -39,6 +39,7 @@ def test_capability_registration_order_is_stable_filename_sorted():
     assert [c.id for c in registry.CAPABILITIES] == [
         "pkce",
         "state",
+        "assertion_replay_protection",
         "dpop",
         "issuer_id",
     ]
@@ -49,6 +50,7 @@ def test_attack_registration_order_is_stable_filename_sorted():
         "auth_code_injection",
         "code_token_replay",
         "csrf_code_injection",
+        "assertion_replay",
         "static_secret_leak",
         "phishing",
         "phish_then_inject",
@@ -61,6 +63,8 @@ def test_runner_registration_order_is_stable_filename_sorted():
         "auth_code_injection",
         "code_token_replay",
         "csrf_code_injection",
+        "jwt_bearer_happy",
+        "assertion_replay",
     ]
 
 
