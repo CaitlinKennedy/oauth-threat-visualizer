@@ -94,6 +94,7 @@ def token_replay_verdict(
     user_accessed_resource: bool,
     honest_bearer: str,
     honest_dpop: str,
+    resource_owner: str = "the victim's",
 ) -> Verdict:
     """The verdict for an access-token replay at the resource server.
 
@@ -111,7 +112,7 @@ def token_replay_verdict(
             one_line=(
                 f"{honest_bearer} Attacker replayed the stolen token: YES — the "
                 "token is a plain bearer token, so possession is all the resource "
-                "server requires and the attacker reads the victim's resource "
+                f"server requires and the attacker reads {resource_owner} resource "
                 "(RFC 6750). Sender-constraining the token (DPoP) is what closes this."
             ),
             blocked_at_seq=None,

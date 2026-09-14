@@ -47,15 +47,15 @@ export function VerdictBanner({ trace, open, onToggle, catalogLabels = {} }: Pro
         okText="Attacker gained access: NO"
         failText="Attacker gained access: YES"
       />
-      {trace.config.grant === "authorization_code" ? (
+      {trace.config.grant !== "client_credentials" ? (
         <Badge
           ok={v.user_got_token && v.user_accessed_resource}
           okText="User reached the API"
           failText="User did not complete the flow"
         />
       ) : (
-        // Back-channel grants have no interactive user login: the honest party
-        // is the client, which succeeds once it holds its own access token. An
+        // Client credentials has no user at all: the honest party is the
+        // client, which succeeds once it holds its own access token. An
         // attack-only run (e.g. a leaked secret) has no honest client to report.
         trace.events.some((e) => e.actor === "client") && <Badge
           ok={clientGotToken(trace)}

@@ -551,10 +551,14 @@ def _run_token_replay(config: ScenarioConfig) -> Trace:
         result = resource_server.get_resource({"url": RESOURCE_URL, "headers": headers})
 
     attacker.capture_token(token, obtained_from_seq=result["seq"])
-    outcome = attacker.replay_token(resource_server=resource_server)
+    # There is no user here: the stolen token unlocks the client's own data.
+    outcome = attacker.replay_token(
+        resource_server=resource_server, resource_owner="the client's"
+    )
 
     verdict = token_replay_verdict(
         recorder,
+        resource_owner="the client's",
         attacker_read_resource=bool(outcome["got_resource"]),
         at_seq=outcome.get("at_seq"),
         user_got_token=False,  # no user in this grant
